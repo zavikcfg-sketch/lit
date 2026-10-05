@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Заказы — VPN Admin{% endblock %}
+{% block h1 %}🧾 Заказы <span class="count">{{ total }}</span>{% endblock %}
+{% block content %}
+<div class="panel">
+  <form method="get" action="/orders" class="filters">
+    <input type="text" name="q" value="{{ q }}" placeholder="order_id / label / operation_id / Telegram ID">
+    <select name="status">
+      <option value="">Все статусы</option>
+      {% for st in ('pending', 'paid', 'canceled') %}
+      <option value="{{ st }}" {{ 'selected' if status == st }}>{{ st }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn primary">🔍 Искать</button>
+    {% if q or status %}<a class="btn ghost" href="/orders">Сброс</a>{% endif %}
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Заказ</th><th>Label</th><th>Telegram ID</th><th>Тариф</th><th>Ожид./получ.</th><th>Статус</th><th>operation_id</th><th>Создан</th><th>Оплачен</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for o in rows %}
+        <tr>
+          <td><code>{{ o.order_id[:14] }}…</code></td>
+          <td><code>{{ o.label }}</code></td>
+          <td><code>{{ o.telegram_id }}</code></td>
+          <td>{{ o.tariff_days }} дн.</td>
+          <td>{{ o.expected_price | money }}{% if o.received_amount %} / <b>{{ o.received_amount | money }}</b>{% endif %} ₽</td>
+          <td><span class="badge b-{{ o.status }}">{{ o.status }}</span></td>
+          <td class="mono">{{ o.operation_id or '—' }}</td>
+          <td>{{ o.created_at | dt }}</td>
+          <td>{{ o.paid_at | dt if o.paid_at else '—' }}</td>
+          <td>
+            {% if o.status == 'paid' %}
+            <form method="post" action="/orders/{{ o.order_id }}/reissue" class="inline-form" data-confirm="Переотправить ключ / довыдать подписку по заказу {{ o.order_id }}?">
+              <input type="hidden" name="back" value="{{ back }}">
+              <button class="btn sm">🔁 Переотправить</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="muted">Ничего не найдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}<a class="btn sm ghost" href="?{{ base_qs }}page={{ page - 1 }}">‹ Назад</a>{% endif %}
+    <span>Стр. {{ page }} из {{ pages }}</span>
+    {% if page < pages %}<a class="btn sm ghost" href="?{{ base_qs }}page={{ page + 1 }}">Вперёд ›</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

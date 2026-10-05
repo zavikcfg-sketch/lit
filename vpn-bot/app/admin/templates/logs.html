@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Логи — VPN Admin{% endblock %}
+{% block h1 %}📜 Логи <span class="count">{{ total }}</span>{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="tabs">
+    <a href="/logs?tab=actions" class="{{ 'active' if tab == 'actions' }}">Действия админов</a>
+    <a href="/logs?tab=payments" class="{{ 'active' if tab == 'payments' }}">Платёжные события</a>
+    <a href="/logs?tab=errors" class="{{ 'active' if tab == 'errors' }}">Ошибки сервисов</a>
+  </div>
+
+  {% if tab == 'errors' %}
+  <form method="get" action="/logs" class="filters">
+    <input type="hidden" name="tab" value="errors">
+    <select name="kind">
+      <option value="">Все типы</option>
+      {% for kd in ('yoomoney', 'remnawave', 'webhook', 'broadcast', 'bot') %}
+      <option value="{{ kd }}" {{ 'selected' if kind == kd }}>{{ kd }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn primary">Фильтр</button>
+  </form>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table>
+      {% if tab == 'actions' %}
+      <thead><tr><th>Время</th><th>Admin ID</th><th>Действие</th><th>Цель</th><th>Детали</th></tr></thead>
+      <tbody>
+        {% for a in rows %}
+        <tr>
+          <td>{{ a.created_at | dt }}</td>
+          <td><code>{{ a.admin_id }}</code></td>
+          <td><span class="badge">{{ a.action }}</span></td>
+          <td>{{ a.target }}</td>
+          <td class="mono">{{ a.details or '—' }}</td>
+        </tr>
+        {% else %}<tr><td colspan="5" class="muted">Пусто</td></tr>{% endfor %}
+      </tbody>
+      {% elif tab == 'payments' %}
+      <thead><tr><th>Получено</th><th>operation_id</th><th>Label</th><th>Hash</th><th>Обработано</th></tr></thead>
+      <tbody>
+        {% for p in rows %}
+        <tr>
+          <td>{{ p.received_at | dt }}</td>
+          <td class="mono">{{ p.operation_id }}</td>
+          <td><code>{{ p.label }}</code></td>
+          <td class="mono">{{ (p.raw_hash or '')[:16] }}{% if p.raw_hash and p.raw_hash | length > 16 %}…{% endif %}</td>
+          <td>{{ p.processed_at | dt if p.processed_at else '⏳ нет' }}</td>
+        </tr>
+        {% else %}<tr><td colspan="5" class="muted">Пусто</td></tr>{% endfor %}
+      </tbody>
+      {% else %}
+      <thead><tr><th>Время</th><th>Тип</th><th>Уровень</th><th>Сообщение</th></tr></thead>
+      <tbody>
+        {% for e in rows %}
+        <tr>
+          <td>{{ e.created_at | dt }}</td>
+          <td><span class="badge">{{ e.kind }}</span></td>
+          <td><span class="badge {{ 'b-expired' if e.level == 'error' else 'b-pending' }}">{{ e.level }}</span></td>
+          <td class="mono wrap">{{ e.message }}</td>
+        </tr>
+        {% else %}<tr><td colspan="4" class="muted">Пусто</td></tr>{% endfor %}
+      </tbody>
+      {% endif %}
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}<a class="btn sm ghost" href="?{{ base_qs }}tab={{ tab }}&kind={{ kind }}&page={{ page - 1 }}">‹ Назад</a>{% endif %}
+    <span>Стр. {{ page }} из {{ pages }}</span>
+    {% if page < pages %}<a class="btn sm ghost" href="?{{ base_qs }}tab={{ tab }}&kind={{ kind }}&page={{ page + 1 }}">Вперёд ›</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

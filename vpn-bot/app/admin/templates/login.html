@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Вход — VPN Admin</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+<div class="login-card">
+  <div class="brand big">🔐 VPN Admin</div>
+  {% if msg %}<div class="toast {{ 'err' if k == 'err' else 'ok' }}" id="toast">{{ msg }}</div>{% endif %}
+  {% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+  {% if not error or error %}
+  <form method="post" action="/login" autocomplete="off">
+    <label>Логин
+      <input type="text" name="username" required autofocus>
+    </label>
+    <label>Пароль
+      <input type="password" name="password" required>
+    </label>
+    <button type="submit" class="btn primary w100">Войти</button>
+  </form>
+  {% endif %}
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
