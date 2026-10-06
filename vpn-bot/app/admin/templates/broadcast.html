@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Рассылка — VPN Admin{% endblock %}
+{% block h1 %}📣 Рассылка{% endblock %}
+{% block content %}
+<div class="grid-2">
+  <div class="panel">
+    <h2>Новая рассылка</h2>
+    {% if running %}
+    <div class="alert warn">Идёт рассылка — создание новой недоступно до завершения.</div>
+    {% endif %}
+    <form method="post" action="/broadcast/preview">
+      <label>Текст сообщения (обычный текст, без HTML)
+        <textarea name="text" rows="7" required>{{ draft }}</textarea>
+      </label>
+      <label>Ограничение скорости: {{ rate }} сообщ./сек
+        <input type="range" name="rate" min="1" max="30" step="1" value="{{ rate }}" oninput="this.previousElementSibling.firstChild.textContent='Ограничение скорости: '+this.value+' сообщ./сек '">
+      </label>
+      <label>Получатели
+        <select name="targets">
+          <option value="all" {{ 'selected' if targets == 'all' }}>Все пользователи</option>
+          <option value="active" {{ 'selected' if targets == 'active' }}>Только активные подписки</option>
+        </select>
+      </label>
+      <button class="btn primary">👁 Предпросмотр</button>
+    </form>
+  </div>
+
+  {% if preview is defined and preview %}
+  <div class="panel">
+    <h2>Предпросмотр</h2>
+    <div class="preview-box">{{ preview.text }}</div>
+    <p>Получателей: <b>{{ preview.recipients }}</b><br>
+       Оценочное время: ~{{ preview.eta_min }} мин</p>
+    <form method="post" action="/broadcast/send" data-confirm="Отправить рассылку {{ preview.recipients }} пользователям? Отменить будет нельзя!">
+      <button class="btn danger">🚀 Отправить</button>
+      <a class="btn ghost" href="/broadcast">Отмена</a>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="panel" id="bc-panel" data-active="{{ '1' if running else '0' }}">
+  <h2>Статус рассылки</h2>
+  <div class="progress"><div class="bar" id="bc-progress" style="width: {{ bc.percent }}%"></div></div>
+  <p id="bc-text">{{ bc.sent }}/{{ bc.total }} отправлено, ошибок: {{ bc.failed }}{% if not running and bc.total == 0 %} — рассылок ещё не было{% endif %}</p>
+  <pre class="log" id="bc-log">{% for line in bc.log %}{{ line }}
+{% endfor %}</pre>
+</div>
+{% endblock %}

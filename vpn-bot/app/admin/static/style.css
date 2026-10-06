@@ -1,0 +1,167 @@
+/* VPN Admin — тёмная тема, адаптив */
+:root {
+  --bg: #0d131b;
+  --panel: #151d28;
+  --panel-2: #1b2533;
+  --border: #263344;
+  --text: #e7edf4;
+  --muted: #8b98a7;
+  --accent: #4f8cff;
+  --accent-2: #3b6fd4;
+  --ok: #2fbf71;
+  --err: #ff5c5c;
+  --warn: #f5a623;
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+/* ---------- sidebar ---------- */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; width: 230px;
+  background: var(--panel); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 18px 14px; z-index: 50;
+}
+.brand { font-weight: 700; font-size: 17px; margin-bottom: 20px; letter-spacing: .3px; }
+.brand.big { font-size: 22px; text-align: center; margin-bottom: 18px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.sidebar nav a {
+  color: var(--muted); text-decoration: none; padding: 10px 12px;
+  border-radius: 8px; transition: background .15s, color .15s;
+}
+.sidebar nav a:hover { background: var(--panel-2); color: var(--text); }
+.sidebar nav a.active { background: var(--accent); color: #fff; }
+.logout-form { margin-top: 10px; }
+
+/* ---------- main ---------- */
+.main { margin-left: 230px; padding: 0 22px 40px; }
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 18px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 20px;
+}
+.topbar h1 { font-size: 20px; margin: 0; font-weight: 600; }
+.count { color: var(--muted); font-size: 14px; font-weight: 400; }
+.burger { display: none; background: none; border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; font-size: 18px; padding: 4px 10px; cursor: pointer; }
+
+/* ---------- cards ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px;
+}
+.card-icon { font-size: 22px; }
+.card-value { font-size: 28px; font-weight: 700; margin: 6px 0 2px; }
+.card-title { color: var(--muted); font-size: 13px; }
+.card-note { color: var(--accent); font-size: 12.5px; margin-top: 6px; }
+
+/* ---------- panels ---------- */
+.panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px; margin-bottom: 20px;
+}
+.panel h2 { font-size: 16px; margin: 0 0 14px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+/* ---------- tables ---------- */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .4px; }
+tbody tr:hover { background: var(--panel-2); }
+td.wrap, .mono.wrap { white-space: normal; word-break: break-word; }
+code { background: var(--panel-2); padding: 2px 6px; border-radius: 6px; font-size: 12.5px; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+
+/* ---------- badges ---------- */
+.badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+.b-active, .b-paid { background: rgba(47,191,113,.14); color: var(--ok); border-color: rgba(47,191,113,.4); }
+.b-expired, .b-error { background: rgba(255,92,92,.14); color: var(--err); border-color: rgba(255,92,92,.4); }
+.b-blocked, .b-pending, .b-warn { background: rgba(245,166,35,.14); color: var(--warn); border-color: rgba(245,166,35,.4); }
+.b-canceled { opacity: .7; }
+
+/* ---------- forms ---------- */
+input[type=text], input[type=password], input[type=number], select, textarea {
+  width: 100%; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font: inherit;
+}
+input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+label { display: block; margin-bottom: 13px; color: var(--muted); font-size: 13px; }
+label input, label select, label textarea { margin-top: 6px; }
+.filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.filters input, .filters select { width: auto; min-width: 180px; flex: 1; }
+.inline-form { display: inline-flex; gap: 6px; align-items: center; margin: 2px 4px 2px 0; }
+.inline-form select { width: auto; padding: 4px 6px; font-size: 13px; }
+.price-input { width: 110px; padding: 5px 8px !important; }
+textarea { resize: vertical; }
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-block; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 16px;
+  font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; transition: filter .15s;
+}
+.btn:hover { filter: brightness(1.18); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { background: rgba(255,92,92,.15); border-color: rgba(255,92,92,.5); color: var(--err); }
+.btn.ok { background: rgba(47,191,113,.15); border-color: rgba(47,191,113,.5); color: var(--ok); }
+.btn.ghost { background: transparent; }
+.btn.sm { padding: 5px 10px; font-size: 12.5px; border-radius: 7px; }
+.btn.w100 { width: 100%; text-align: center; }
+
+/* ---------- toast / alert ---------- */
+.toast {
+  position: fixed; top: 18px; right: 18px; z-index: 100; max-width: 420px;
+  padding: 12px 18px; border-radius: 10px; font-size: 14px;
+  background: rgba(47,191,113,.15); border: 1px solid rgba(47,191,113,.5); color: var(--ok);
+  box-shadow: 0 8px 30px rgba(0,0,0,.4);
+}
+.toast.err { background: rgba(255,92,92,.15); border-color: rgba(255,92,92,.5); color: var(--err); }
+.alert { padding: 11px 14px; border-radius: 9px; margin-bottom: 14px; font-size: 14px; }
+.alert.err { background: rgba(255,92,92,.12); border: 1px solid rgba(255,92,92,.4); color: var(--err); }
+.alert.warn { background: rgba(245,166,35,.12); border: 1px solid rgba(245,166,35,.4); color: var(--warn); }
+
+/* ---------- чекбокс в строке фильтров (создание подписки) ---------- */
+.filters label.chk { display: flex; align-items: center; gap: 7px; margin: 0; width: auto;
+  flex: 0 0 auto; color: var(--text); font-size: 13.5px; cursor: pointer; }
+.filters label.chk input { width: auto; margin: 0; }
+
+/* ---------- pagination ---------- */
+.pagination { display: flex; gap: 12px; align-items: center; margin-top: 16px; color: var(--muted); }
+
+/* ---------- tabs ---------- */
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.tabs a { padding: 8px 14px; border-radius: 8px; text-decoration: none; color: var(--muted);
+  background: var(--panel-2); border: 1px solid var(--border); font-size: 13.5px; }
+.tabs a.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ---------- broadcast ---------- */
+.progress { height: 10px; background: var(--panel-2); border-radius: 20px; overflow: hidden; margin: 8px 0 10px; }
+.progress .bar { height: 100%; background: linear-gradient(90deg, var(--accent), #7aa7ff); width: 0; transition: width .6s; }
+.log { background: #0a0f16; border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+  max-height: 220px; overflow-y: auto; font-size: 12.5px; color: var(--muted); }
+.preview-box { background: #0a0f16; border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; white-space: pre-wrap; word-break: break-word; margin-bottom: 12px; }
+
+/* ---------- login ---------- */
+.login-body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { width: min(380px, 92vw); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 16px; padding: 28px; }
+
+/* ---------- mobile ---------- */
+@media (max-width: 900px) {
+  .sidebar { transform: translateX(-100%); transition: transform .2s ease; width: 250px; }
+  body.nav-open .sidebar { transform: translateX(0); box-shadow: 0 0 60px rgba(0,0,0,.6); }
+  .main { margin-left: 0; padding: 0 14px 40px; }
+  .burger { display: block; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .filters input, .filters select { min-width: 130px; }
+  th, td { padding: 7px 8px; }
+}

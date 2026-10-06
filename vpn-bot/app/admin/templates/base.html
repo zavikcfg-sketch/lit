@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}VPN Admin{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<aside class="sidebar" id="sidebar">
+  <div class="brand">🔐 VPN Admin</div>
+  <nav>
+    <a href="/" class="{{ 'active' if section == 'dashboard' }}">📊 Дашборд</a>
+    <a href="/users" class="{{ 'active' if section == 'users' }}">👥 Пользователи</a>
+    <a href="/orders" class="{{ 'active' if section == 'orders' }}">🧾 Заказы</a>
+    <a href="/tariffs" class="{{ 'active' if section == 'tariffs' }}">💎 Тарифы</a>
+    <a href="/broadcast" class="{{ 'active' if section == 'broadcast' }}">📣 Рассылка</a>
+    <a href="/logs" class="{{ 'active' if section == 'logs' }}">📜 Логи</a>
+  </nav>
+  <form method="post" action="/logout" class="logout-form">
+    <button type="submit" class="btn ghost w100">⎋ Выйти</button>
+  </form>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="burger" id="burger" aria-label="Меню">☰</button>
+    <h1>{% block h1 %}{% endblock %}</h1>
+  </header>
+
+  {% if msg %}<div class="toast {{ 'err' if k == 'err' else 'ok' }}" id="toast">{{ msg }}</div>{% endif %}
+
+  {% block content %}{% endblock %}
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

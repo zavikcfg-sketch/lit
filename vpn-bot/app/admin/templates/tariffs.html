@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Тарифы — VPN Admin{% endblock %}
+{% block h1 %}💎 Тарифы{% endblock %}
+{% block content %}
+<div class="panel">
+  <p class="muted">Цены применяются мгновенно и для новых заказов в боте. Снятие галочки скрывает тариф в меню.</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Код</th><th>Название</th><th>Дней</th><th>Цена, ₽</th><th>Включён</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for t in rows %}
+        <tr>
+          <td><code>{{ t.code }}</code></td>
+          <td>{{ t.title }}</td>
+          <td>{{ t.days }}</td>
+          <td>
+            <form method="post" action="/tariffs/{{ t.id }}/save" class="inline-form tariff-form" data-confirm="Сохранить изменения тарифа {{ t.title }}?">
+              <input type="number" name="price" value="{{ t.price }}" min="0" step="0.01" class="price-input" required>
+          </td>
+          <td>
+              <label class="switch">
+                <input type="checkbox" name="enabled" value="1" {{ 'checked' if t.enabled }}>
+                <span></span>
+              </label>
+          </td>
+          <td>
+              <button class="btn sm primary">💾 Сохранить</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
