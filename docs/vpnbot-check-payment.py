@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Диагностика подтверждения оплаты в vpnbot (запускать ВНУТРИ контейнера vpnbot-bot).
+"""Диагностика подтверждения оплаты в vpnbot (версия 2026-10-06.4).
 
+Запуск (обязательно из каталога кода бота):
     docker cp /root/vpnbot-check-payment.py vpnbot-bot:/tmp/check-payment.py
-    docker exec vpnbot-bot python /tmp/check-payment.py
+    docker exec -w /app vpnbot-bot python /tmp/check-payment.py
 
-Можно указать конкретный заказ:
-    docker exec vpnbot-bot python /tmp/check-payment.py <order_id>
+С одним заказом:
+    docker exec -w /app vpnbot-bot python /tmp/check-payment.py <order_id>
 
-Скрипт печатает: режим комиссии и цены из окружения контейнера, последние заказы,
-историю операций ЮMoney по их меткам и РЕЗУЛЬТАТ вызова той же функции,
-которой пользуется кнопка «Проверить оплату» (с полным текстом ошибки).
-Секреты не печатает.
+Скрипт НЕ печатает токены и секреты. Он:
+  1) показывает все настройки ЮMoney/цен из окружения контейнера;
+  2) считает порог подтверждения по каждой цене (комиссия от суммы заказа);
+  3) печатает заказы и события оплат из базы;
+  4) для зависших заказов делает прямой запрос к API ЮMoney и вызывает
+     ту самую функцию, что стоит за кнопкой «Проверить оплату» (с текстом ошибки).
 """
 from __future__ import annotations
 
@@ -21,8 +24,7 @@ import sys
 import traceback
 from pathlib import Path
 
-
-SCRIPT_VERSION = "check-payment 2026-10-06.3"
+SCRIPT_VERSION = "check-payment 2026-10-06.4"
 
 
 def bootstrap_path() -> str | None:
@@ -47,15 +49,22 @@ APP_ROOT = bootstrap_path()
 if APP_ROOT is None:
     print("!! Не нашёл каталог с пакетом app/ (код бота).")
     print("   Запусти так:  docker exec -w /app vpnbot-bot python /tmp/check-payment.py")
-    print("   Проверить путь:  docker exec vpnbot-bot sh -c 'ls -d /app/app /opt/*/vpn-bot/app 2>/dev/null'")
     sys.exit(2)
 print(f"{SCRIPT_VERSION} | корень бота: {APP_ROOT}")
 
-from sqlalchemy import select
+SECRET_HINTS = ("token", "secret", "password", "passwd", "key")
 
 
 def title(text: str) -> None:
     print("\n" + "=" * 8 + " " + text + " " + "=" * 8)
+
+
+def masked(name: str, value) -> str:
+    if any(hint in name for hint in SECRET_HINTS):
+        if not value:
+            return "ПУСТО"
+        return f"ЗАДАН (длина {len(str(value))})"
+    return repr(value)
 
 
 def safe(label: str, fn, *args, **kwargs):
@@ -65,15 +74,55 @@ def safe(label: str, fn, *args, **kwargs):
         return result
     except Exception as exc:  # noqa: BLE001
         print(f"{label}: ОШИБКА {type(exc).__name__}: {exc}")
-        traceback.print_exc()
+        traceback.print_exc(limit=2)
         return None
 
 
-def mask(value) -> str:
-    text = str(value or "")
-    if len(text) <= 6:
-        return "***"
-    return text[:4] + "…" + text[-2:]
+async def acall(label: str, coro):
+    """Аккуратно вызывает async-функцию (её надо именно await-ить)."""
+    try:
+        result = await coro
+        print(f"{label}: {result!r}")
+        return result
+    except Exception as exc:  # noqa: BLE001
+        print(f"{label}: ИСКЛЮЧЕНИЕ {type(exc).__name__}: {exc}")
+        traceback.print_exc(limit=3)
+        return None
+
+
+async def probe_api(label: str) -> None:
+    """Прямой запрос к ЮMoney: видно код ответа (401 = токен плохой, 200 = ок)."""
+    import httpx
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    token = getattr(settings, "yoomoney_access_token", None)
+    print(f"    токен yoomoney_access_token: {'ЕСТЬ' if token else 'ПУСТО'}")
+    if not token:
+        print("    прямой запрос пропущен — без токена автопроверка невозможна")
+        return
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            resp = await client.get(
+                "https://yoomoney.ru/api/operations-history",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"type": "in", "label": label},
+            )
+            body = (resp.text or "").replace("\n", " ")[:400]
+            print(f"    GET operations-history: HTTP {resp.status_code} | {body}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"    GET operations-history: ОШИБКА {type(exc).__name__}: {exc}")
+        try:
+            resp = await client.post(
+                "https://yoomoney.ru/api/operation-history",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"type": "in", "label": label},
+            )
+            body = (resp.text or "").replace("\n", " ")[:400]
+            print(f"    POST operation-history: HTTP {resp.status_code} | {body}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"    POST operation-history: ОШИБКА {type(exc).__name__}: {exc}")
 
 
 async def main() -> int:
@@ -82,37 +131,34 @@ async def main() -> int:
     from app.config import get_settings
     from app.database import get_session, init_db
     from app.models import Order, PaymentEvent
-    from app.services import yoomoney
     from app.services import orders as orders_service
+    from app.services import yoomoney
 
     await init_db()
 
     title("НАСТРОЙКИ ИЗ ОКРУЖЕНИЯ КОНТЕЙНЕРА")
     settings = get_settings()
-    for name in (
-        "yoomoney_fee_mode",
-        "yoomoney_fee_percent",
-        "price_7_days",
-        "price_30_days",
-        "price_90_days",
-        "price_180_days",
-        "price_365_days",
-        "price_device_slot",
-        "device_base_limit",
-    ):
-        if hasattr(settings, name):
-            print(f"  {name} = {getattr(settings, name)!r}")
-    for name in ("yoomoney_wallet", "yoomoney_receiver"):
-        if hasattr(settings, name):
-            print(f"  {name} = {mask(getattr(settings, name))}")
-    for name in ("yoomoney_token", "yoomoney_notification_secret"):
-        if hasattr(settings, name):
-            value = getattr(settings, name)
-            print(f"  {name}: {'ЗАДАН' if value else 'ПУСТО'}")
-    print("  прошло ли патч device_slots:", hasattr(orders_service, "device_slots"))
+    fields = getattr(type(settings), "model_fields", None) or getattr(settings, "__fields__", {})
+    interesting = (
+        "yoomoney",
+        "price",
+        "device",
+        "webhook",
+        "notify",
+        "public",
+        "host",
+        "port",
+    )
+    for name in sorted(fields):
+        lower = name.lower()
+        if not any(word in lower for word in interesting):
+            continue
+        value = getattr(settings, name, None)
+        print(f"  {name} = {masked(name, value)}")
+    print("  код пропатчен (device_slots импортируется):", hasattr(orders_service, "device_slots"))
 
     title("ПОРОГ ПОДТВЕРЖДЕНИЯ ПО КАЖДОЙ ЦЕНЕ ЗАКАЗА")
-    print("  (комиссия считается от суммы конкретного заказа, а не от фиксированной)")
+    print("  (комиссия считается от суммы конкретного заказа, а не фиксированно)")
     for attr in (
         "price_7_days",
         "price_30_days",
@@ -124,46 +170,25 @@ async def main() -> int:
         if not hasattr(settings, attr):
             continue
         base_price = getattr(settings, attr)
-        try:
-            show = yoomoney.display_amount(base_price)
-        except Exception as exc:  # noqa: BLE001
-            show = f"ОШИБКА {exc}"
-        try:
-            need = yoomoney.required_amount(base_price)
-        except Exception as exc:  # noqa: BLE001
-            need = f"ОШИБКА {exc}"
+        show = safe("", yoomoney.display_amount, base_price)
+        need = safe("", yoomoney.required_amount, base_price)
         print(f"  {attr}: заказ {base_price} ₽ -> клиент платит {show} ₽, подтверждаем от {need} ₽")
-
-    title("ЛОГИКА КОМИССИИ (исходник yoomoney.py)")
-    for name in ("display_amount", "required_amount", "try_manual_confirm", "fetch_operations_by_label"):
-        fn = getattr(yoomoney, name, None)
-        if fn is None:
-            print(f"  {name}: НЕТ такой функции")
-            continue
-        try:
-            print(f"\n--- {name} ---")
-            print(inspect.getsource(fn))
-        except Exception as exc:  # noqa: BLE001
-            print(f"  {name}: исходник недоступен ({exc})")
-    print("  функции модуля:", [n for n in dir(yoomoney) if not n.startswith("__")])
 
     title("ЗАКАЗЫ В БАЗЕ (последние 8)")
     cols = [c.name for c in Order.__table__.columns]
     async with get_session() as session:
         recent = (
-            await session.execute(select(Order).order_by(Order.id.desc()).limit(8))
+            await session.execute(select_order_desc(Order))
         ).scalars().all()
         events = (
-            await session.execute(select(PaymentEvent).order_by(PaymentEvent.id.desc()).limit(5))
+            await session.execute(
+                select_events(PaymentEvent)
+            )
         ).scalars().all()
         event_cols = [c.name for c in PaymentEvent.__table__.columns]
 
-    orders_by_id = {}
     for row in recent:
-        data = {c: getattr(row, c, None) for c in cols}
-        orders_by_id[str(data.get("order_id"))] = row
-        print("  " + ", ".join(f"{k}={v}" for k, v in data.items()))
-
+        print("  " + ", ".join(f"{c}={getattr(row, c, None)}" for c in cols))
     if not recent:
         print("  (пусто)")
 
@@ -173,67 +198,64 @@ async def main() -> int:
     if not events:
         print("  (пусто)")
 
-    # какие строки заказов считаем «не подтверждёнными»
     paid_markers = {"paid", "success", "succeeded", "confirmed", "completed"}
 
     def is_pending(row) -> bool:
-        status = str(getattr(row, "status", "") or "").lower()
-        return status not in paid_markers
+        return str(getattr(row, "status", "") or "").lower() not in paid_markers
 
     if target:
         chosen = [r for r in recent if str(getattr(r, "order_id", "")) == target]
         if not chosen:
-            print(f"\n!! Заказ {target} не найден среди последних 8 — покажу по нему попытку всё равно")
-            chosen = [None]
+            print(f"\n!! Заказ {target} не найден среди последних 8")
     else:
         pending = [r for r in recent if is_pending(r)]
         chosen = pending[:3] if pending else recent[:3]
 
     title("ПРОВЕРКА ОПЛАТЫ (то же, что делает кнопка «Проверить оплату»)")
+    if not chosen:
+        print("  нечего проверять — заказов нет")
     for row in chosen:
-        if row is None:
-            print(f"  заказ {target}: пропущен (нет строки в БД)")
-            continue
         order_id = getattr(row, "order_id", None)
-        expected = getattr(row, "expected_price", None) or getattr(row, "price", None)
-        print(f"\n>>> заказ {order_id} (статус {getattr(row, 'status', None)})")
-        if hasattr(yoomoney, "display_amount"):
-            safe("    display_amount", yoomoney.display_amount, expected)
-        if hasattr(yoomoney, "required_amount"):
-            safe("    required_amount", yoomoney.required_amount, expected)
+        expected = getattr(row, "expected_price", None)
+        label = getattr(row, "label", None) or f"rw_{order_id}"
+        print(f"\n>>> заказ {order_id} (статус {getattr(row, 'status', None)}, метка {label})")
+        print(f"    ожидаем {expected} ₽, подтверждаем от "
+              f"{safe('', yoomoney.required_amount, expected)} ₽")
 
-        label = None
-        for name in ("order_label", "label_for", "build_label", "make_label", "payment_label"):
-            fn = getattr(yoomoney, name, None)
-            if fn is not None:
-                safe(f"    {name}", fn, row)
-        if label is None:
-            label = f"rw_{order_id}"
-            print(f"    метка по умолчанию: {label}")
+        await probe_api(str(label))
 
-        if hasattr(yoomoney, "fetch_operations_by_label"):
-            ops = safe("    операции по метке", yoomoney.fetch_operations_by_label, label)
-            if ops:
-                for op in ops:
-                    print("        ", {k: op.get(k) for k in ("operation_id", "amount", "datetime", "label") if isinstance(op, dict)} if isinstance(op, dict) else op)
-            else:
-                print("        (операций не найдено)")
+        ops = await acall("    fetch_operations_by_label", yoomoney.fetch_operations_by_label(str(label)))
+        if isinstance(ops, list):
+            if not ops:
+                print("        (операций по метке нет)")
+            for op in ops:
+                if isinstance(op, dict):
+                    shown = {k: op.get(k) for k in ("operation_id", "amount", "datetime", "label", "status") if k in op}
+                    print(f"        {shown}")
+                else:
+                    print(f"        {op!r}")
 
-        fn = getattr(yoomoney, "try_manual_confirm", None) or getattr(orders_service, "try_manual_confirm", None)
-        if fn is None:
-            print("    try_manual_confirm: НЕТ функции")
-        else:
-            print("    вызов try_manual_confirm:", inspect.signature(fn))
-            try:
-                result = await fn(row)
-                print(f"    РЕЗУЛЬТАТ: {result!r}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"    ИСКЛЮЧЕНИЕ {type(exc).__name__}: {exc}")
-                traceback.print_exc()
+        print("    сигнатура try_manual_confirm:", inspect.signature(yoomoney.try_manual_confirm))
+        result = await acall("    РЕЗУЛЬТАТ", yoomoney.try_manual_confirm(row))
+        print(f"    -> {result!r}")
 
-    title("ГОТОВО")
-    print("Скопируй весь вывод и пришли — по нему видно, почему бот не подтвердил оплату.")
+    title("ПОДСКАЗКА")
+    print("  yoomoney_notification_secret должен совпадать с секретом из настроек уведомлений")
+    print("  ЮMoney. Если он ПУСТО — авто-подтверждение по вебхуку работать не будет,")
+    print("  останется только кнопка «Проверить оплату» (нужен yoomoney_access_token).")
     return 0
+
+
+def select_order_desc(Order):
+    from sqlalchemy import select
+
+    return select(Order).order_by(Order.id.desc()).limit(8)
+
+
+def select_events(PaymentEvent):
+    from sqlalchemy import select
+
+    return select(PaymentEvent).order_by(PaymentEvent.id.desc()).limit(5)
 
 
 if __name__ == "__main__":
