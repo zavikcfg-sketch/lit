@@ -167,6 +167,36 @@ async def _buy_device(cb: CallbackQuery) -> None:
 '''
 
 
+def repair_markdown(text: str) -> tuple[str, int]:
+    """Чинит последствия копипаста: '[user(x)](http://user(x))' -> 'user(x)'.
+
+    Markdown-ссылки вида '[текст](http://...)': оставляем только текст.
+    Скобки внутри URL балансируются, поэтому вложенные '(' и ')' не мешают.
+    """
+    fixed = 0
+    out_lines: list[str] = []
+    for line in text.split("\n"):
+        cur = line
+        while True:
+            m = re.search(r"\[([^\[\]]+)\]\(https?://", cur)
+            if not m:
+                break
+            start = m.start()
+            i = m.end()
+            depth = 1
+            while i < len(cur) and depth > 0:
+                ch = cur[i]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                i += 1
+            cur = cur[:start] + m.group(1) + cur[i:]
+            fixed += 1
+        out_lines.append(cur)
+    return "\n".join(out_lines), fixed
+
+
 def sub1(text: str, pattern: str, repl: str) -> tuple[str, int]:
     return re.subn(pattern, repl, text, count=1, flags=re.M)
 
@@ -323,8 +353,12 @@ def main() -> int:
 
     notes: list[str] = []
     results: dict[str, str] = {}
+    repaired_total = 0
     for key, fn in (("orders", patch_orders), ("shop", patch_shop), ("config", patch_config)):
-        new_text, part = fn(files[key].read_text(encoding="utf-8"))
+        original = files[key].read_text(encoding="utf-8")
+        fixed, repaired = repair_markdown(original)
+        repaired_total += repaired
+        new_text, part = fn(fixed)
         if new_text is None:
             print("!! Патч остановлен, файлы НЕ изменены:")
             for msg in part:
@@ -341,7 +375,8 @@ def main() -> int:
         path.write_text(results[key], encoding="utf-8")
 
     slots_path = APP / "services" / "device_slots.py"
-    slots_path.write_text(SLOTS_MODULE, encoding="utf-8")
+    slots_text, _ = repair_markdown(SLOTS_MODULE)
+    slots_path.write_text(slots_text, encoding="utf-8")
 
     targets = [
         APP / "services" / "device_slots.py",
@@ -349,6 +384,9 @@ def main() -> int:
         APP / "config.py",
         APP / "telegram" / "handlers_shop.py",
     ]
+    if repaired_total:
+        notes.append(f"устранены следы копипаста в коде: исправлено {repaired_total} шт.")
+
     for path in targets:
         try:
             py_compile.compile(str(path), doraise=True)
