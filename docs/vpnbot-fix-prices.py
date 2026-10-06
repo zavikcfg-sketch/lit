@@ -8,7 +8,36 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from decimal import Decimal
+from pathlib import Path
+
+SCRIPT_VERSION = "price-fix 2026-10-06.3"
+
+def bootstrap_path() -> str | None:
+    """Ищем каталог, внутри которого лежит пакет app/ (код бота)."""
+    candidates = [
+        os.environ.get("VPNBOT_APP_DIR"),
+        os.getcwd(),
+        "/app",
+        "/opt/vpnbot/vpn-bot",
+        "/code",
+        "/srv/app",
+        "/home/app",
+    ]
+    for candidate in candidates:
+        if candidate and (Path(candidate) / "app" / "config.py").is_file():
+            sys.path.insert(0, candidate)
+            return candidate
+    return None
+
+APP_ROOT = bootstrap_path()
+if APP_ROOT is None:
+    print("!! Не нашёл каталог с пакетом app/ (код бота).")
+    print("   Запусти так:  docker exec -w /app vpnbot-bot python /tmp/fix-prices.py")
+    sys.exit(2)
+print(f"fix-prices {SCRIPT_VERSION} | корень бота: {APP_ROOT}")
 
 from sqlalchemy import delete, select
 

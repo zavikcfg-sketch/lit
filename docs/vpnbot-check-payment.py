@@ -22,6 +22,9 @@ import traceback
 from pathlib import Path
 
 
+SCRIPT_VERSION = "check-payment 2026-10-06.3"
+
+
 def bootstrap_path() -> str | None:
     """Ищем каталог, внутри которого лежит пакет app/ (код бота)."""
     candidates = [
@@ -46,7 +49,7 @@ if APP_ROOT is None:
     print("   Запусти так:  docker exec -w /app vpnbot-bot python /tmp/check-payment.py")
     print("   Проверить путь:  docker exec vpnbot-bot sh -c 'ls -d /app/app /opt/*/vpn-bot/app 2>/dev/null'")
     sys.exit(2)
-print(f"корень бота: {APP_ROOT}")
+print(f"{SCRIPT_VERSION} | корень бота: {APP_ROOT}")
 
 from sqlalchemy import select
 

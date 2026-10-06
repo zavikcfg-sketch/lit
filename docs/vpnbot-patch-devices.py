@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+SCRIPT_VERSION = "patch-devices 2026-10-06.3"
+
 ROOT = Path(os.environ.get("VPNBOT_DIR", "/opt/vpnbot/vpn-bot"))
 APP = ROOT / "app"
 ENV = ROOT / ".env"
@@ -408,6 +410,7 @@ def update_env() -> list[str]:
 
 
 def main() -> int:
+    print(f"{SCRIPT_VERSION} | корень бота: {ROOT}")
     if not APP.is_dir():
         print(f"!! Каталог не найден: {APP}")
         print("   Укажи корень бота: VPNBOT_DIR=/opt/vpnbot/vpn-bot python3 ...")
