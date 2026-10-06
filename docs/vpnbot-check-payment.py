@@ -16,8 +16,37 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import sys
 import traceback
+from pathlib import Path
+
+
+def bootstrap_path() -> str | None:
+    """Ищем каталог, внутри которого лежит пакет app/ (код бота)."""
+    candidates = [
+        os.environ.get("VPNBOT_APP_DIR"),
+        os.getcwd(),
+        "/app",
+        "/opt/vpnbot/vpn-bot",
+        "/code",
+        "/srv/app",
+        "/home/app",
+    ]
+    for candidate in candidates:
+        if candidate and (Path(candidate) / "app" / "config.py").is_file():
+            sys.path.insert(0, candidate)
+            return candidate
+    return None
+
+
+APP_ROOT = bootstrap_path()
+if APP_ROOT is None:
+    print("!! Не нашёл каталог с пакетом app/ (код бота).")
+    print("   Запусти так:  docker exec -w /app vpnbot-bot python /tmp/check-payment.py")
+    print("   Проверить путь:  docker exec vpnbot-bot sh -c 'ls -d /app/app /opt/*/vpn-bot/app 2>/dev/null'")
+    sys.exit(2)
+print(f"корень бота: {APP_ROOT}")
 
 from sqlalchemy import select
 
