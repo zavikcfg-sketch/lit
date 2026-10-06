@@ -11,7 +11,7 @@
 
 set -u
 
-SCRIPT_VERSION="setup-payments 2026-10-06.2"
+SCRIPT_VERSION="setup-payments 2026-10-06.3"
 RAW_BASE="https://raw.githubusercontent.com/zavikcfg-sketch/lit/arena/ce75106c-lit/docs"
 BOT_DIR="${VPNBOT_DIR:-/opt/vpnbot/vpn-bot}"
 CONTAINER="${VPNBOT_CONTAINER:-vpnbot-bot}"
@@ -52,6 +52,10 @@ say "текущие переменные ЮMoney в .env:"
 grep -n -i 'yoomoney' "$ENV_FILE" | sed 's/=.*/=<скрыто>/'
 
 step "1/7  Токен ЮMoney (YOOMONEY_ACCESS_TOKEN)"
+if [ -z "${TOKEN_FILE:-}" ] && [ -f /root/token.txt ]; then
+  TOKEN_FILE=/root/token.txt
+  say "нашёл файл /root/token.txt — читаю токен из него"
+fi
 if [ -n "${TOKEN_FILE:-}" ] && [ -f "$TOKEN_FILE" ]; then
   FILE_TOK="$(tr -d '\r\n' < "$TOKEN_FILE")"
   if [ "${#FILE_TOK}" -ge 200 ]; then
@@ -85,7 +89,7 @@ else
     say "   (nano /root/token.txt), затем запусти скрипт с TOKEN_FILE=/root/token.txt."
     say "   Короткий ключ (~24 символа) — это секрет уведомлений, его спрошу на шаге 2."
   done
-  [ "${#TOK}" -ge 100 ] || die "токен не введён — запусти скрипт заново (history −3)"
+  [ "${#TOK}" -ge 200 ] || die "токен не введён целиком. Сохрани его в файл: nano /root/token.txt, потом запусти этот скрипт снова — он сам прочитает файл."
 fi
 
 step "2/7  Секрет уведомлений (необязательно, Enter — пропустить)"
