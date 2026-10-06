@@ -52,22 +52,37 @@ say "текущие переменные ЮMoney в .env:"
 grep -n -i 'yoomoney' "$ENV_FILE" | sed 's/=.*/=<скрыто>/'
 
 step "1/7  Токен ЮMoney (YOOMONEY_ACCESS_TOKEN)"
+if [ -n "${TOKEN_FILE:-}" ] && [ -f "$TOKEN_FILE" ]; then
+  FILE_TOK="$(tr -d '\r\n' < "$TOKEN_FILE")"
+  if [ "${#FILE_TOK}" -ge 200 ]; then
+    set_env YOOMONEY_ACCESS_TOKEN "$FILE_TOK"
+    say "токен прочитан из $TOKEN_FILE (длина ${#FILE_TOK}) и записан в .env"
+  else
+    say "!! в $TOKEN_FILE только ${#FILE_TOK} символов — проверь файл"
+  fi
+fi
 TOK="$(get_env YOOMONEY_ACCESS_TOKEN)"
-if [ "${#TOK}" -ge 100 ]; then
+if [ "${#TOK}" -ge 200 ]; then
   say "токен уже установлен (длина ${#TOK}) — оставляю как есть"
 else
+  if [ "${#TOK}" -ge 1 ]; then
+    say "!! в .env токен есть, но он короче 200 символов (длина ${#TOK}) —"
+    say "   похоже, он оборвался при вставке. Введи его заново целиком."
+    say "   Полный токен — около 273 символов: 16 цифр кошелька, точка и длинный хвост."
+  fi
   attempt=0
   while [ "$attempt" -lt 3 ]; do
     attempt=$((attempt + 1))
     read -r -p "Вставь токен ЮMoney и нажми Enter: " NEWTOK
-    if [ "${#NEWTOK}" -ge 100 ] && printf '%s' "$NEWTOK" | grep -q '\.'; then
+    if [ "${#NEWTOK}" -ge 200 ] && printf '%s' "$NEWTOK" | grep -q '\.'; then
       set_env YOOMONEY_ACCESS_TOKEN "$NEWTOK"
       TOK="$NEWTOK"
       say "токен записан (длина ${#TOK})"
       break
     fi
-    say "!! это не похоже на токен: введено символов ${#NEWTOK}."
-    say "   Токен — длинный ключ вида 4100118889570559.XXXX... (больше 100 символов)."
+    say "!! это не похоже на полный токен: введено символов ${#NEWTOK}, а нужно около 273."
+    say "   Если вставилось меньше — токен оборвался. Надёжнее: сохрани его в файл"
+    say "   (nano /root/token.txt), затем запусти скрипт с TOKEN_FILE=/root/token.txt."
     say "   Короткий ключ (~24 символа) — это секрет уведомлений, его спрошу на шаге 2."
   done
   [ "${#TOK}" -ge 100 ] || die "токен не введён — запусти скрипт заново (history −3)"
