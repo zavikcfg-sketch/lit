@@ -11,7 +11,7 @@
 
 set -u
 
-SCRIPT_VERSION="setup-payments 2026-10-06.1"
+SCRIPT_VERSION="setup-payments 2026-10-06.2"
 RAW_BASE="https://raw.githubusercontent.com/zavikcfg-sketch/lit/arena/ce75106c-lit/docs"
 BOT_DIR="${VPNBOT_DIR:-/opt/vpnbot/vpn-bot}"
 CONTAINER="${VPNBOT_CONTAINER:-vpnbot-bot}"
