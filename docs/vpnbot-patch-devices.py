@@ -22,7 +22,18 @@ APP = ROOT / "app"
 ENV = ROOT / ".env"
 STAMP = time.strftime("%Y%m%d-%H%M%S")
 BACKUP_DIR = Path(os.environ.get("VPNBOT_BACKUP_DIR", "/root"))
-BACKUP = BACKUP_DIR / f"vpnbot-app-backup-{STAMP}"
+
+
+def unique_path(path: Path) -> Path:
+    """Чтобы повторный запуск в ту же секунду не падал на существующем бэкапе."""
+    if not path.exists():
+        return path
+    counter = 2
+    while True:
+        candidate = path.with_name(path.name + f"-{counter}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 SLOTS_MODULE = '''"""Дополнительные устройства (HWID-слоты) для подписок Remnawave."""
 from __future__ import annotations
@@ -242,6 +253,25 @@ def patch_orders(text: str) -> tuple[str | None, list[str]]:
     return text, notes
 
 
+def _shop_excerpt(path: Path) -> list[str]:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    idx = next((i for i, line in enumerate(lines) if "cb_buy" in line), None)
+    if idx is not None:
+        lo, hi = max(0, idx - 5), min(len(lines), idx + 40)
+        body = [f"   {i + 1}: {lines[i]}" for i in range(lo, hi)]
+    else:
+        body = [f"   {i + 1}: {line}" for i, line in enumerate(lines[:60])]
+    return ["   --- фрагмент файла (пришли его мне) ---"] + body + ["   --- конец фрагмента ---"]
+
+
+def _device_branch(indent: str) -> str:
+    return (
+        f"{indent}if code == device_slots.DEVICE_CODE:\n"
+        f"{indent}    await _buy_device(cb)\n"
+        f"{indent}    return\n\n"
+    )
+
+
 def patch_shop(text: str) -> tuple[str | None, list[str]]:
     notes: list[str] = []
     if "device_slots" not in text:
@@ -253,28 +283,70 @@ def patch_shop(text: str) -> tuple[str | None, list[str]]:
         if n != 1:
             return None, ["handlers_shop.py: не найден импорт 'from app.services import orders'"]
         notes.append("handlers_shop.py: импорт device_slots")
+
+    # список тарифов: кнопка «Ещё устройство»
     if "buy:device" not in text:
         text, n = sub1(
             text,
-            r'^( {4})rows\.append\(\[btn\("⬅️ Назад в меню", "menu:back"\)\]\)$',
-            r'\1rows.append([btn(f"➕ Ещё устройство — {format_price(device_slots.slot_price())}", "buy:device")])\n'
-            r'\1rows.append([btn("⬅️ Назад в меню", "menu:back")])',
+            r'^(\s*)rows\.append\(\[btn\("⬅️ Назад в меню", "menu:back"\)\]\)\s*$',
+            lambda m: (
+                m.group(1)
+                + 'rows.append([btn(f"➕ Ещё устройство — {format_price(device_slots.slot_price())}", "buy:device")])\n'
+                + m.group(1)
+                + 'rows.append([btn("⬅️ Назад в меню", "menu:back")])'
+            ),
         )
         if n != 1:
             return None, ["handlers_shop.py: не найдена кнопка 'Назад в меню' в списке тарифов"]
         notes.append("handlers_shop.py: кнопка «Ещё устройство»")
+
+    # ветка покупки устройства — 3 варианта, любой отступ
     if "_buy_device" not in text:
-        text, n = sub1(
-            text,
-            r"^( {4})tariff = await get_tariff\(code\)$",
-            r"\1if code == device_slots.DEVICE_CODE:\n"
-            r"\1    await _buy_device(cb)\n"
-            r"\1    return\n\n"
-            r"\1tariff = await get_tariff(code)",
-        )
-        if n != 1:
-            return None, ["handlers_shop.py: не найдена ветка выбора тарифа (get_tariff)"]
-        notes.append("handlers_shop.py: ветка покупки устройства")
+        hook = None
+        for name, pattern, where in (
+            (
+                "после 'code = cb.data.split(...)'",
+                r"^([ \t]*)code = cb\.data\.split\([^\n]*\)[^\n]*$",
+                "after",
+            ),
+            (
+                "перед 'tariff = await get_tariff(code)'",
+                r"^([ \t]*)tariff = await get_tariff\(code\)",
+                "before",
+            ),
+        ):
+            m = re.search(pattern, text, re.M)
+            if m:
+                indent = m.group(1)
+                snippet = _device_branch(indent).rstrip("\n")
+                if where == "after":
+                    pos = m.end()
+                    text = text[:pos] + "\n" + snippet + "\n" + text[pos:]
+                else:
+                    pos = m.start()
+                    text = text[:pos] + snippet + "\n\n" + text[pos:]
+                notes.append(f"handlers_shop.py: ветка покупки устройства ({name})")
+                hook = name
+                break
+        if hook is None:
+            m = re.search(r"^([ \t]*)async def cb_buy\([^\n]*\)[^\n]*:\s*\n", text, re.M)
+            if m is None:
+                return None, [
+                    "handlers_shop.py: не найдены ни 'code = cb.data.split(...)', ни "
+                    "'tariff = await get_tariff(code)', ни 'async def cb_buy(...)'",
+                ] + _shop_excerpt(APP / "telegram" / "handlers_shop.py")
+            indent = m.group(1) + "    "
+            pos = m.end()
+            docstring = re.match(r"[ \t]*(?:\'\'\'|\"\"\")(?:.|\n)*?(?:\'\'\'|\"\"\")\s*\n", text[pos:])
+            if docstring:
+                pos += docstring.end()
+            text = (
+                text[:pos]
+                + f"{indent}code = cb.data.split(':', 1)[1]\n"
+                + _device_branch(indent)
+                + text[pos:]
+            )
+            notes.append("handlers_shop.py: ветка покупки устройства (после 'async def cb_buy')")
         text = text.rstrip("\n") + "\n" + SHOP_BUY_DEVICE
     return text, notes
 
@@ -315,7 +387,7 @@ def update_env() -> list[str]:
     }
     if not ENV.exists():
         return [".env: файл не найден — пропущено"]
-    shutil.copy2(ENV, Path(str(ENV) + ".bak." + STAMP))
+    shutil.copy2(ENV, unique_path(Path(str(ENV) + ".bak." + STAMP)))
     out: list[str] = []
     seen: set[str] = set()
     for line in ENV.read_text(encoding="utf-8").splitlines():
@@ -369,8 +441,9 @@ def main() -> int:
 
     # бэкап и запись
     if APP.exists():
-        shutil.copytree(APP, BACKUP)
-        print(f"бэкап кода: {BACKUP}")
+        backup = unique_path(BACKUP_DIR / f"vpnbot-app-backup-{STAMP}")
+        shutil.copytree(APP, backup)
+        print(f"бэкап кода: {backup}")
     for key, path in files.items():
         path.write_text(results[key], encoding="utf-8")
 

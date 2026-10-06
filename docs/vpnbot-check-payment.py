@@ -79,6 +79,29 @@ async def main() -> int:
             print(f"  {name}: {'ЗАДАН' if value else 'ПУСТО'}")
     print("  прошло ли патч device_slots:", hasattr(orders_service, "device_slots"))
 
+    title("ПОРОГ ПОДТВЕРЖДЕНИЯ ПО КАЖДОЙ ЦЕНЕ ЗАКАЗА")
+    print("  (комиссия считается от суммы конкретного заказа, а не от фиксированной)")
+    for attr in (
+        "price_7_days",
+        "price_30_days",
+        "price_90_days",
+        "price_180_days",
+        "price_365_days",
+        "price_device_slot",
+    ):
+        if not hasattr(settings, attr):
+            continue
+        base_price = getattr(settings, attr)
+        try:
+            show = yoomoney.display_amount(base_price)
+        except Exception as exc:  # noqa: BLE001
+            show = f"ОШИБКА {exc}"
+        try:
+            need = yoomoney.required_amount(base_price)
+        except Exception as exc:  # noqa: BLE001
+            need = f"ОШИБКА {exc}"
+        print(f"  {attr}: заказ {base_price} ₽ -> клиент платит {show} ₽, подтверждаем от {need} ₽")
+
     title("ЛОГИКА КОМИССИИ (исходник yoomoney.py)")
     for name in ("display_amount", "required_amount", "try_manual_confirm", "fetch_operations_by_label"):
         fn = getattr(yoomoney, name, None)
