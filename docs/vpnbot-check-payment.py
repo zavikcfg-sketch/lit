@@ -24,7 +24,7 @@ import sys
 import traceback
 from pathlib import Path
 
-SCRIPT_VERSION = "check-payment 2026-10-06.4"
+SCRIPT_VERSION = "check-payment 2026-10-06.5"
 
 
 def bootstrap_path() -> str | None:
@@ -53,6 +53,7 @@ if APP_ROOT is None:
 print(f"{SCRIPT_VERSION} | корень бота: {APP_ROOT}")
 
 SECRET_HINTS = ("token", "secret", "password", "passwd", "key")
+PARTIAL_HINTS = ("wallet", "receiver", "account")
 
 
 def title(text: str) -> None:
@@ -64,6 +65,9 @@ def masked(name: str, value) -> str:
         if not value:
             return "ПУСТО"
         return f"ЗАДАН (длина {len(str(value))})"
+    if any(hint in name for hint in PARTIAL_HINTS) and value:
+        text = str(value)
+        return text[:4] + "…" + text[-2:] if len(text) > 8 else "***"
     return repr(value)
 
 
@@ -170,8 +174,14 @@ async def main() -> int:
         if not hasattr(settings, attr):
             continue
         base_price = getattr(settings, attr)
-        show = safe("", yoomoney.display_amount, base_price)
-        need = safe("", yoomoney.required_amount, base_price)
+        try:
+            show = yoomoney.display_amount(base_price)
+        except Exception as exc:  # noqa: BLE001
+            show = f"ОШИБКА {exc}"
+        try:
+            need = yoomoney.required_amount(base_price)
+        except Exception as exc:  # noqa: BLE001
+            need = f"ОШИБКА {exc}"
         print(f"  {attr}: заказ {base_price} ₽ -> клиент платит {show} ₽, подтверждаем от {need} ₽")
 
     title("ЗАКАЗЫ В БАЗЕ (последние 8)")
@@ -239,10 +249,18 @@ async def main() -> int:
         result = await acall("    РЕЗУЛЬТАТ", yoomoney.try_manual_confirm(row))
         print(f"    -> {result!r}")
 
-    title("ПОДСКАЗКА")
-    print("  yoomoney_notification_secret должен совпадать с секретом из настроек уведомлений")
-    print("  ЮMoney. Если он ПУСТО — авто-подтверждение по вебхуку работать не будет,")
-    print("  останется только кнопка «Проверить оплату» (нужен yoomoney_access_token).")
+    title("ЧТО ДАЛЬШЕ")
+    secret = getattr(settings, "yoomoney_notification_secret", None)
+    token = getattr(settings, "yoomoney_access_token", None)
+    if not secret:
+        print("  1) yoomoney_notification_secret ПУСТО -> авто-подтверждение по вебхуку не работает.")
+        print("     Возьми секрет на yoomoney.ru: Настройки → Уведомления о переводе → секрет,")
+        print("     добавь в .env строку YOOMONEY_NOTIFICATION_SECRET=<секрет> и: docker compose up -d")
+    if not token:
+        print("  2) yoomoney_access_token ПУСТО -> кнопка «Проверить оплату» тоже не сможет искать платёж.")
+    if secret and token:
+        print("  и секрет, и токен заданы — авто-подтверждение должно работать;")
+        print("  проверь, что адрес уведомлений в кабинете ЮMoney указывает на этот бот.")
     return 0
 
 
