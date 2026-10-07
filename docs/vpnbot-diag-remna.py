@@ -22,7 +22,7 @@ import os
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "diag-remna 2026-10-06.1"
+SCRIPT_VERSION = "diag-remna 2026-10-06.2"
 DEFAULT_ORDER = "ord_2d2d788f56995f9f"
 
 
@@ -199,6 +199,40 @@ async def main() -> int:
     uuid = panel_user.get("uuid") or panel_user.get("id")
     limit = panel_user.get("hwidDeviceLimit")
 
+    title("ИСХОДНИКИ ФУНКЦИЙ ВЫДАЧИ (прямо из контейнера)")
+    import inspect
+
+    targets = []
+    for name in ("update_user", "extend_user", "_request", "get_user"):
+        fn = getattr(remna_module.get_remna().__class__, name, None)
+        if fn is not None:
+            targets.append((f"remnawave.{name}", fn))
+    try:
+        from app.services import orders as orders_module
+
+        for name in ("provision_user", "process_successful_payment"):
+            fn = getattr(orders_module, name, None)
+            if fn is not None:
+                targets.append((f"orders.{name}", fn))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  orders не прочитались: {type(exc).__name__}: {exc}")
+    try:
+        from app.services import device_slots
+
+        for name in ("ensure_base_limit", "add_device_slot", "_remna_id"):
+            fn = getattr(device_slots, name, None)
+            if fn is not None:
+                targets.append((f"device_slots.{name}", fn))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  device_slots не прочитались: {type(exc).__name__}: {exc}")
+
+    for name, fn in targets:
+        try:
+            print(f"\n--- {name} ---")
+            print(inspect.getsource(fn))
+        except Exception as exc:  # noqa: BLE001
+            print(f"  исходник недоступен ({type(exc).__name__}: {exc})")
+
     title("СЫРЫЕ PATCH-ЗАПРОСЫ (ищем точный текст ошибки валидации)")
     base, token, notes = find_conn()
     for note in notes:
@@ -212,11 +246,37 @@ async def main() -> int:
 
     url = f"{base}/api/users"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    title("НАСТРОЙКИ ПОДПИСКИ И HWID (GET, чтобы понять, включён ли HWID)")
+    async with httpx.AsyncClient(timeout=25) as http:
+        for path in ("/api/subscription-settings", "/api/settings"):
+            try:
+                resp = await http.get(f"{base}{path}", headers=headers)
+                body = (resp.text or "").replace("\n", " ")[:700]
+                print(f"\n  GET {path}: HTTP {resp.status_code}\n     {body}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"\n  GET {path}: СЕТЬ {type(exc).__name__}: {exc}")
+
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
     attempts = [
         ("только uuid", {"uuid": uuid}),
         ("uuid + hwidDeviceLimit (как делает бот)", {"uuid": uuid, "hwidDeviceLimit": 2}),
         ("uuid + hwidDeviceLimit строкой", {"uuid": uuid, "hwidDeviceLimit": "2"}),
         ("uuid + статус", {"uuid": uuid, "status": "ACTIVE"}),
+        (
+            "uuid + expireAt с миллисекундами и Z",
+            {"uuid": uuid, "expireAt": (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"},
+        ),
+        (
+            "uuid + expireAt без миллисекунд",
+            {"uuid": uuid, "expireAt": (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")},
+        ),
+        (
+            "uuid + expireAt без Z",
+            {"uuid": uuid, "expireAt": (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")},
+        ),
     ]
     async with httpx.AsyncClient(timeout=25) as http:
         for name, payload in attempts:
