@@ -22,7 +22,7 @@ import os
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "diag-remna 2026-10-06.2"
+SCRIPT_VERSION = "diag-remna 2026-10-06.3"
 DEFAULT_ORDER = "ord_2d2d788f56995f9f"
 
 
@@ -197,7 +197,10 @@ async def main() -> int:
         return 1
 
     uuid = panel_user.get("uuid") or panel_user.get("id")
+    num_id = panel_user.get("id")
+    username = panel_user.get("username")
     limit = panel_user.get("hwidDeviceLimit")
+    print(f"  числовой id={num_id!r}, username={username!r}")
 
     title("ИСХОДНИКИ ФУНКЦИЙ ВЫДАЧИ (прямо из контейнера)")
     import inspect
@@ -261,6 +264,9 @@ async def main() -> int:
 
     now = datetime.now(timezone.utc)
     attempts = [
+        ("uuid + hwidDeviceLimit (как отправлял бот — должно упасть)", {"uuid": uuid, "hwidDeviceLimit": 2}),
+        ("id + hwidDeviceLimit (правильно)", {"id": num_id, "hwidDeviceLimit": 2}),
+        ("username + hwidDeviceLimit (тоже правильно)", {"username": username, "hwidDeviceLimit": 2}),
         ("только uuid", {"uuid": uuid}),
         ("uuid + hwidDeviceLimit (как делает бот)", {"uuid": uuid, "hwidDeviceLimit": 2}),
         ("uuid + hwidDeviceLimit строкой", {"uuid": uuid, "hwidDeviceLimit": "2"}),
