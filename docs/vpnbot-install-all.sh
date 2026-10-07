@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LitEnergy: полная установка бота. Версия 2026-10-07.6
+# LitEnergy: полная установка бота. Версия 2026-10-07.7
 #   тест 1 день (с QR) · рефералка +1 день · «Моя подписка» · локации
 #   фирменный экран входа с баннером · пробник на главном экране для новых
 #   напоминания и бэкап по крону
@@ -9,7 +9,7 @@
 
 set -u
 
-VERSION="install-all 2026-10-07.6"
+VERSION="install-all 2026-10-07.7"
 BOT_DIR="${VPNBOT_DIR:-/opt/vpnbot/vpn-bot}"
 CONTAINER="${VPNBOT_CONTAINER:-vpnbot-bot}"
 RAW="https://raw.githubusercontent.com/zavikcfg-sketch/lit/arena/ce75106c-lit/docs"
@@ -28,15 +28,15 @@ say "$VERSION"
 cd "$BOT_DIR" || { say "!! нет каталога $BOT_DIR"; exit 1; }
 say "корень бота: $BOT_DIR"
 
-step "1/9  Тестовая подписка на 1 день"
+step "1/10  Тестовая подписка на 1 день"
 fetch vpnbot-patch-trial.py /root/vpnbot-patch-trial.py || { say "!! не скачался патч теста"; exit 1; }
 python3 /root/vpnbot-patch-trial.py || { say "!! патч теста не применился"; exit 1; }
 
-step "2/9  Рефералка, «Моя подписка», справка, QR"
+step "2/10  Рефералка, «Моя подписка», справка, QR"
 fetch vpnbot-patch-features.py /root/vpnbot-patch-features.py || { say "!! не скачался патч функций"; exit 1; }
 python3 /root/vpnbot-patch-features.py || { say "!! патч функций не применился"; exit 1; }
 
-step "3/9  Баннер и аватар"
+step "3/10  Баннер и аватар"
 mkdir -p "$BOT_DIR/app/telegram/assets"
 if fetch banner-litenergy.png /root/litenergy-banner.png; then
   cp /root/litenergy-banner.png "$BOT_DIR/app/telegram/assets/litenergy-banner.png"
@@ -46,17 +46,21 @@ else
 fi
 fetch avatar-litenergy.png /root/litenergy-avatar.png && say "  ok  аватар: /root/litenergy-avatar.png (для BotFather → /setuserpic)"
 
-step "4/9  Красивый экран входа, тексты, кнопка пробника для новых, /apps и /link"
+step "4/10  Красивый экран входа, тексты, кнопка пробника для новых, /apps и /link"
 fetch vpnbot-patch-polish.py /root/vpnbot-patch-polish.py || { say "!! не скачался патч оформления"; exit 1; }
 VPNBOT_BANNER=/root/litenergy-banner.png python3 /root/vpnbot-patch-polish.py || { say "!! патч оформления не применился"; exit 1; }
 say "  проверка: экран входа обновлён ($(grep -c _litenergy_design "$BOT_DIR/app/telegram/handlers_start.py") связок)"
 say "  проверка: врезки в main.py ($(grep -c _litenergy_look.attach "$BOT_DIR/app/main.py"))"
 
-step "5/9  Карточка подписки с полоской срока и кнопка «Не подключается?»"
+step "5/10  Карточка подписки с полоской срока и кнопка «Не подключается?»"
 fetch vpnbot-patch-more.py /root/vpnbot-patch-more.py || { say "!! не скачался патч улучшений"; exit 1; }
 python3 /root/vpnbot-patch-more.py || { say "!! патч улучшений не применился"; exit 1; }
 
-step "6/9  Пересборка бота"
+step "6/10  Устройства, промокоды, квест друзей"
+fetch vpnbot-patch-usertools.py /root/vpnbot-patch-usertools.py || { say "!! не скачался патч usertools"; exit 1; }
+python3 /root/vpnbot-patch-usertools.py || { say "!! патч usertools не применился"; exit 1; }
+
+step "7/10  Пересборка бота"
 say "(код в контейнере обновляется только пересборкой)"
 docker compose up -d --build || { say "!! docker compose не сработал"; exit 1; }
 sleep 12
@@ -71,7 +75,7 @@ docker exec "$CONTAINER" python -c "import segno" >/dev/null 2>&1 \
   && say "  ok  QR-коды работают (segno на месте)" \
   || say "  !! segno всё ещё нет — QR не будет, остальное работает"
 
-step "7/9  Служебные скрипты"
+step "8/10  Служебные скрипты"
 for pair in "vpnbot-remind-expiry.py:remind-expiry.py" "vpnbot-backup.sh:backup.sh" "vpnbot-watch-payments.py:watch-payments.py"; do
   src="${pair%%:*}"; dst="${pair##*:}"
   if fetch "$src" "/root/$dst"; then
@@ -82,7 +86,7 @@ for pair in "vpnbot-remind-expiry.py:remind-expiry.py" "vpnbot-backup.sh:backup.
   fi
 done
 
-step "8/9  Крон: напоминания, бэкап, оплаты"
+step "9/10  Крон: напоминания, бэкап, оплаты"
 DB_PATH=""
 [ -f "$BOT_DIR/data/bot.db" ] && DB_PATH="$BOT_DIR/data/bot.db"
 if [ -z "$DB_PATH" ]; then
@@ -108,7 +112,7 @@ crontab -l 2>/dev/null | grep -v 'remind-expiry.py' | grep -v 'vpnbot-backup.sh'
 crontab "$CRON_TMP" && rm -f "$CRON_TMP"
 say "  текущий крон:"; crontab -l | tail -3 | sed 's/^/    /'
 
-step "9/9  Проверка"
+step "10/10  Проверка"
 printf '  баннер в контейнере: '
 docker exec "$CONTAINER" test -s /app/app/telegram/assets/litenergy-banner.png 2>/dev/null && say "ok" || say "НЕТ"
 printf '  новый экран входа: '
@@ -125,6 +129,8 @@ printf '  segno (QR): '
 docker exec "$CONTAINER" python -c "import segno;print('ok')" 2>/dev/null || say "НЕТ"
 printf '  диагностика: '
 docker exec "$CONTAINER" python -c "from app.telegram import diag;print('ok')" 2>/dev/null || say "НЕТ"
+printf '  устройства/промокоды: '
+docker exec "$CONTAINER" python -c "from app.telegram import usertools; usertools.ensure_tables(); print('ok')" 2>/dev/null || say "НЕТ"
 
 say ""
 say "Проверка в боте (лучше со второго аккаунта — где теста ещё не было):"
@@ -133,6 +139,9 @@ say "  • после активации теста — сразу QR-код п�
 say "  • /vpn — подписка · /ref — приглашение (+1 день) · /loc — локации · /apps — приложения"
 say "  • /link — ссылка подписки с QR · /help — инструкция"
 say "  • /diag или 🧭 «Не подключается?» — диагностика с чек-листом"
+say "  • 🐛 Мои устройства (+ /devices) — отвязка старого телефона без поддержки"
+say "  • 🎟 Промокод, админ: /promo_add КОД ДНЕЙ [ЛИМИТ], /promo_list, /promo_off"
+say "  • 🏆 квест: 3 друга → +30 дней (меняется в .env: REFERRAL_QUEST=3:30)"
 say ""
 say "Аватар бота (по желанию): BotFather → /setuserpic → /root/litenergy-avatar.png"
 say "Если что-то не отвечает — пришли: docker logs $CONTAINER --tail 40"
