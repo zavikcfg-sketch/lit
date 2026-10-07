@@ -7,6 +7,7 @@
 
 Режимы:
   --list                          показать ноды, профили, инбаунды и хосты
+  --verify                        проверить локации: панель + доступность адрес:порт
   --create --direct                добавить «обычную» локацию на том же сервере,
                                   что и локация за CDN (без нового VPS, бесплатно)
   --create --remark "🇩🇪 Германия (обычный VPN)"
@@ -24,10 +25,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "locations 2026-10-07.2"
+SCRIPT_VERSION = "locations 2026-10-07.3"
 
 
 def bootstrap_path() -> Path | None:
@@ -81,6 +83,53 @@ async def api(remna, method: str, path: str, payload: dict | None = None):
     if not callable(fn):
         raise SystemExit("!! клиент панели без метода _request — обнови код бота")
     return await fn(method, path, json=payload)
+
+
+def tcp_ok(host: str, port: int, timeout: float = 6.0) -> tuple[bool, str]:
+    """Проверяет, что адрес:порт отвечают по TCP (без хендшейка VLESS)."""
+    try:
+        with socket.create_connection((str(host), int(port)), timeout=timeout):
+            return True, "порт открыт"
+    except OSError as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+async def cmd_verify(remna) -> int:
+    """Проверка локаций: панель + доступность адреса и порта."""
+    nodes = {str(n.get("uuid")): n for n in as_list(await api(remna, "GET", "/api/nodes"))}
+    hosts = as_list(await api(remna, "GET", "/api/hosts"))
+    if not hosts:
+        print("!! локаций нет")
+        return 1
+    print("\n=== ПРОВЕРКА ЛОКАЦИЙ ===")
+    problems = 0
+    for host in hosts:
+        remark = host.get("remark")
+        address = str(host.get("address") or "")
+        try:
+            port = int(str(host.get("port")))
+        except (TypeError, ValueError):
+            port = 0
+        node_names = ", ".join(
+            str((nodes.get(str(u)) or {}).get("name") or u) for u in (host.get("nodes") or [])
+        ) or "—"
+        disabled = bool(host.get("isDisabled"))
+        ok, detail = tcp_ok(address, port) if (address and port) else (False, "нет адреса/порта")
+        mark = "🟢" if ok and not disabled else "🔴"
+        if mark == "🔴":
+            problems += 1
+        print(f"  {mark} {remark!r}")
+        print(f"     адрес: {address}:{port} — {detail}")
+        print(f"     нода:  {node_names}{'  (локация выключена)' if disabled else ''}")
+    print("")
+    if problems:
+        print(f"!! проблемных локаций: {problems}.")
+        print("   • порт закрыт — открой его у хостера и в фаерволе сервера;")
+        print("   • адрес неверный — проверь IP в панели (Ноды).")
+        print("   • обычная локация должна отвечать на 443 (Reality), локация за CDN — 443 на своём домене.")
+        return 1
+    print("Все локации отвечают ✅")
+    return 0
 
 
 def as_list(data) -> list:
@@ -163,6 +212,7 @@ async def cmd_list(remna) -> int:
     print("  --create --direct — добавить «обычную» локацию на том же сервере (бесплатно)")
     print("  --create --remark \"...\" — локация на НОВОЙ ноде (второй сервер)")
     print("  инбаунд выбирается автоматически: reality → tls → любой")
+    print("  --verify — проверить, что все локации отвечают")
     return 0
 
 
@@ -264,6 +314,8 @@ async def cmd_create(remna) -> int:
             print("!! нужен --remark, например: --remark \"🇩🇪 Германия (обычный VPN)\"")
             return 2
         base = str(node.get("name") or "Локация").strip()
+        if base.endswith(")") and "(" in base:
+            base = base[: base.rfind("(")].strip()  # убираем пометку в скобках
         remark = base if "обычн" in base.lower() else f"{base} (обычный VPN)"
 
     for host in hosts:
@@ -321,6 +373,15 @@ async def cmd_create(remna) -> int:
     elif arg("server-description"):
         payload["serverDescription"] = arg("server-description")
 
+    port_ok, port_detail = tcp_ok(address, port_int)
+    if not dry:
+        print(f"\nпроверка {address}:{port_int} — {port_detail}")
+        if not port_ok and not flag("force"):
+            print("!! порт не отвечает — локация создастся, но у клиентов не подключится.")
+            print("   Проверь: фаервол сервера (ufw/firewalld), фаервол у хостера, правильный ли адрес.")
+            print("   Если уверен — запусти ту же команду с --force.")
+            return 1
+
     print("\nСОЗДАЮ ЛОКАЦИЮ:" + (" (прямое подключение, без CDN)" if direct else ""))
     print(f"  название: {remark}")
     print(f"  нода:     {node.get('name')} ({node.get('uuid')})")
@@ -341,6 +402,8 @@ async def cmd_create(remna) -> int:
     print("  1) Клиенты увидят новую локацию после обновления подписки (в приложении — потянуть список вниз).")
     print("  2) В боте: /loc — список локаций, /vpn — моя подписка.")
     print("  3) Если нужна другая страна на втором сервере — та же команда с --remark для неё.")
+    print("")
+    print("Проверить локации: python /tmp/locations.py --verify")
     return 0
 
 
@@ -353,11 +416,16 @@ async def main() -> int:
         print(f"!! клиент панели не создался: {type(exc).__name__}: {exc}")
         return 1
 
-    mode = "list" if flag("list") or not any(a.startswith("--create") for a in sys.argv) else "create"
     if flag("create"):
         mode = "create"
+    elif flag("verify"):
+        mode = "verify"
+    else:
+        mode = "list"
 
     try:
+        if mode == "verify":
+            return await cmd_verify(remna)
         if mode == "list":
             return await cmd_list(remna)
         return await cmd_create(remna)
