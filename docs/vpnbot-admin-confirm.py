@@ -15,6 +15,9 @@
 а подписка/устройство не выданы) — используй режим выдачи:
     docker exec -w /app vpnbot-bot python /tmp/admin-confirm.py <order_id> --force
 Он вызывает выдачу напрямую, не трогая статус заказа.
+
+Отменить заказ, который клиент так и не оплатил (чтобы не висел в ожидании):
+    docker exec -w /app vpnbot-bot python /tmp/admin-confirm.py <order_id> --cancel
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ import os
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "admin-confirm 2026-10-06.2"
+SCRIPT_VERSION = "admin-confirm 2026-10-06.3"
 
 
 def bootstrap_path() -> str | None:
@@ -94,7 +97,8 @@ async def main() -> int:
 
     args = [a for a in sys.argv[1:] if a.strip()]
     force = "--force" in args
-    args = [a for a in args if a != "--force"]
+    cancel = "--cancel" in args
+    args = [a for a in args if a not in ("--force", "--cancel")]
     if not args:
         print("\nЧтобы подтвердить заказ: python /tmp/admin-confirm.py <order_id>")
         print("Если заказ уже оплачен, но выдача упала: python /tmp/admin-confirm.py <order_id> --force")
@@ -108,6 +112,23 @@ async def main() -> int:
     if order is None:
         print(f"\n!! Заказ {target} не найден")
         return 1
+
+    if cancel:
+        print(f"\n=== ОТМЕНЯЮ {order.order_id} ({order.expected_price} ₽, статус {order.status}) ===")
+        async with get_session() as session:
+            fresh = (
+                await session.execute(select(Order).where(Order.order_id == target))
+            ).scalar_one_or_none()
+            if fresh is None:
+                print("!! заказ пропал")
+                return 1
+            if fresh.status == "paid":
+                print("!! заказ уже оплачен — отменять нельзя")
+                return 1
+            fresh.status = "canceled"
+            await session.commit()
+        print("заказ помечен canceled — крон больше его не проверяет")
+        return 0
 
     if force:
         print(

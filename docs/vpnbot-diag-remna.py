@@ -22,7 +22,7 @@ import os
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "diag-remna 2026-10-06.3"
+SCRIPT_VERSION = "diag-remna 2026-10-06.4"
 DEFAULT_ORDER = "ord_2d2d788f56995f9f"
 
 
@@ -263,27 +263,16 @@ async def main() -> int:
     from datetime import datetime, timedelta, timezone
 
     now = datetime.now(timezone.utc)
+    # ВАЖНО: тесты НИЧЕГО не меняют — только возвращают текущие значения.
+    current_value = limit if limit is not None else 1
     attempts = [
-        ("uuid + hwidDeviceLimit (как отправлял бот — должно упасть)", {"uuid": uuid, "hwidDeviceLimit": 2}),
-        ("id + hwidDeviceLimit (правильно)", {"id": num_id, "hwidDeviceLimit": 2}),
-        ("username + hwidDeviceLimit (тоже правильно)", {"username": username, "hwidDeviceLimit": 2}),
-        ("только uuid", {"uuid": uuid}),
-        ("uuid + hwidDeviceLimit (как делает бот)", {"uuid": uuid, "hwidDeviceLimit": 2}),
-        ("uuid + hwidDeviceLimit строкой", {"uuid": uuid, "hwidDeviceLimit": "2"}),
-        ("uuid + статус", {"uuid": uuid, "status": "ACTIVE"}),
-        (
-            "uuid + expireAt с миллисекундами и Z",
-            {"uuid": uuid, "expireAt": (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"},
-        ),
-        (
-            "uuid + expireAt без миллисекунд",
-            {"uuid": uuid, "expireAt": (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")},
-        ),
-        (
-            "uuid + expireAt без Z",
-            {"uuid": uuid, "expireAt": (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")},
-        ),
+        ("uuid (как отправлял бот — падает)", {"uuid": uuid, "hwidDeviceLimit": current_value}),
+        ("id (правильно)", {"id": num_id}),
+        ("username (тоже правильно)", {"username": username}),
     ]
+    if limit is not None:
+        attempts.append(("id + текущий лимит (значение не меняется)", {"id": num_id, "hwidDeviceLimit": limit}))
+
     async with httpx.AsyncClient(timeout=25) as http:
         for name, payload in attempts:
             try:
