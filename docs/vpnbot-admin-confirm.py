@@ -10,6 +10,11 @@
 Подтверждение идёт через ту же функцию, что и оплата: продлевает подписку,
 создаёт пользователя в панели, помечает заказ оплаченным. Событие помечается
 уникальным operation_id, поэтому повторный запуск не продлит подписку дважды.
+
+Если заказ уже помечен оплаченным, но выдача в панели падала (статус paid,
+а подписка/устройство не выданы) — используй режим выдачи:
+    docker exec -w /app vpnbot-bot python /tmp/admin-confirm.py <order_id> --force
+Он вызывает выдачу напрямую, не трогая статус заказа.
 """
 from __future__ import annotations
 
@@ -18,7 +23,7 @@ import os
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "admin-confirm 2026-10-06.1"
+SCRIPT_VERSION = "admin-confirm 2026-10-06.2"
 
 
 def bootstrap_path() -> str | None:
@@ -88,8 +93,11 @@ async def main() -> int:
         print("  (нет)")
 
     args = [a for a in sys.argv[1:] if a.strip()]
+    force = "--force" in args
+    args = [a for a in args if a != "--force"]
     if not args:
         print("\nЧтобы подтвердить заказ: python /tmp/admin-confirm.py <order_id>")
+        print("Если заказ уже оплачен, но выдача упала: python /tmp/admin-confirm.py <order_id> --force")
         return 0
 
     target = args[0].strip()
@@ -100,6 +108,28 @@ async def main() -> int:
     if order is None:
         print(f"\n!! Заказ {target} не найден")
         return 1
+
+    if force:
+        print(
+            f"\n=== ВЫДАЮ ПРИНУДИТЕЛЬНО {order.order_id}"
+            f" ({order.expected_price} ₽, тариф {order.tariff_code}, статус {order.status}) ==="
+        )
+        try:
+            from app.services import device_slots
+
+            if order.tariff_code == device_slots.DEVICE_CODE:
+                limit = await device_slots.add_device_slot(order.telegram_id)
+                print(f"устройство добавлено, лимит теперь: {limit}")
+            else:
+                await orders_service.provision_user(order.telegram_id, order.tariff_days)
+                await device_slots.ensure_base_limit(order.telegram_id)
+                print("подписка выдана/продлена, базовый лимит устройств выставлен")
+        except Exception as exc:  # noqa: BLE001
+            print(f"!! выдача не удалась: {type(exc).__name__}: {exc}")
+            return 1
+        await show_user(order.telegram_id)
+        print("\nГотово. Заказ остался в статусе paid — это правильно.")
+        return 0
 
     print(f"\n=== ПОДТВЕРЖДАЮ {order.order_id} ({order.expected_price} ₽, статус {order.status}) ===")
     ok, code = await orders_service.process_successful_payment(

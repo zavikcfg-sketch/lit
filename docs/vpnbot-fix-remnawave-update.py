@@ -54,8 +54,19 @@ NEW_METHOD = '''    async def update_user(self, user_id, **fields):
 '''.replace("{marker}", MARKER)
 
 
-def detect_kwarg(source: str) -> str:
-    """Каким именем файл уже передаёт тело в _request: json=, body=, data=?"""
+def detect_kwarg(source: str, tree) -> str:
+    """Каким именем файл передаёт тело в _request.
+
+    Сначала смотрим сигнатуру самого метода _request (надёжнее всего),
+    затем — как он вызывается в коде.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_request":
+            args = [a.arg for a in node.args.args]
+            if len(args) >= 4:
+                print(f"  сигнатура _request: {args}")
+                return args[3]
+            print(f"  сигнатура _request: {args} (тело, похоже, через **kwargs)")
     found = re.findall(r"self\._request\(\s*[^,]+,\s*[^,]+,\s*([a-z_]+)\s*=", source)
     for name in ("json", "body", "data"):
         if name in found:
@@ -88,14 +99,14 @@ def main() -> int:
             print(f"!! в файле нет метода {needed} — патч не подходит, пришли вывод.")
             return 1
 
-    kwarg = detect_kwarg(source)
-    print(f"тело запроса файл передаёт как: {kwarg}=")
-
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
         print(f"!! файл не разбирается: {exc}")
         return 1
+
+    kwarg = detect_kwarg(source, tree)
+    print(f"тело запроса файл передаёт как: {kwarg}=")
 
     target_node = None
     for node in tree.body:
