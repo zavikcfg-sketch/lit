@@ -7,8 +7,10 @@
 
 Режимы:
   --list                          показать ноды, профили, инбаунды и хосты
+  --create --direct                добавить «обычную» локацию на том же сервере,
+                                  что и локация за CDN (без нового VPS, бесплатно)
   --create --remark "🇩🇪 Германия (обычный VPN)"
-                                  добавить локацию (прямое подключение, без CDN)
+                                  добавить локацию на новой ноде (второй сервер)
         [--node UUID|часть имени] [--inbound UUID|часть тега]
         [--address IP] [--port N] [--sni X] [--security LAYER] [--dry-run]
 
@@ -25,7 +27,7 @@ import os
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "locations 2026-10-07.1"
+SCRIPT_VERSION = "locations 2026-10-07.2"
 
 
 def bootstrap_path() -> Path | None:
@@ -157,7 +159,10 @@ async def cmd_list(remna) -> int:
             f"sni={host.get('sni')!r} profile={inbound.get('configProfileUuid')} "
             f"inbound={inbound.get('configProfileInboundUuid')} nodes={host.get('nodes')}"
         )
-    print("\nПодсказка: --create сам выберет свободную ноду и её инбаунд (reality в приоритете).")
+    print("\nПодсказки:")
+    print("  --create --direct — добавить «обычную» локацию на том же сервере (бесплатно)")
+    print("  --create --remark \"...\" — локация на НОВОЙ ноде (второй сервер)")
+    print("  инбаунд выбирается автоматически: reality → tls → любой")
     return 0
 
 
@@ -187,6 +192,30 @@ def pick_inbound(node: dict, want: str | None) -> dict | None:
         return 2
 
     return sorted(inbounds, key=score)[0]
+
+
+def pick_direct_node(nodes: list, hosts: list, want: str | None) -> dict | None:
+    """Нода для «обычной» локации: та же, что уже используется (обычно CDN-локация)."""
+    if want:
+        return pick_node(nodes, hosts, want)
+    order: list[str] = []
+    for host in hosts:
+        for uuid in host.get("nodes") or []:
+            value = str(uuid)
+            if value not in order:
+                order.append(value)
+    for uuid in order:
+        for node in nodes:
+            if str(node.get("uuid")) == uuid:
+                return node
+    if len(nodes) == 1:
+        return nodes[0]
+    if not nodes:
+        return None
+    print("!! нод несколько — укажи --node uuid. Доступные:")
+    for node in nodes:
+        print(f"   {node.get('name')!r} uuid={node.get('uuid')} address={node.get('address')}")
+    return None
 
 
 def pick_node(nodes: list, hosts: list, want: str | None) -> dict | None:
@@ -219,23 +248,28 @@ def pick_node(nodes: list, hosts: list, want: str | None) -> dict | None:
 
 
 async def cmd_create(remna) -> int:
-    remark = arg("remark")
-    if not remark:
-        print("!! нужен --remark, например: --remark \"🇩🇪 Германия (обычный VPN)\"")
-        return 2
     dry = flag("dry-run")
+    direct = flag("direct")
 
     nodes = as_list(await api(remna, "GET", "/api/nodes"))
     hosts = as_list(await api(remna, "GET", "/api/hosts"))
+
+    node = pick_direct_node(nodes, hosts, arg("node")) if direct else pick_node(nodes, hosts, arg("node"))
+    if node is None:
+        return 1
+
+    remark = arg("remark")
+    if not remark:
+        if not direct:
+            print("!! нужен --remark, например: --remark \"🇩🇪 Германия (обычный VPN)\"")
+            return 2
+        base = str(node.get("name") or "Локация").strip()
+        remark = base if "обычн" in base.lower() else f"{base} (обычный VPN)"
 
     for host in hosts:
         if str(host.get("remark", "")).strip() == remark.strip():
             print(f"!! локация с названием {remark!r} уже есть (uuid={host.get('uuid')})")
             return 1
-
-    node = pick_node(nodes, hosts, arg("node"))
-    if node is None:
-        return 1
     inbound = pick_inbound(node, arg("inbound"))
     if inbound is None:
         print("!! у ноды нет активных инбаундов — проверь её профиль в панели")
@@ -252,6 +286,21 @@ async def cmd_create(remna) -> int:
         print("!! не знаю порт — укажи --port, например --port 443")
         return 1
 
+    inbound_uuid = str(inbound.get("uuid"))
+    for host in hosts:
+        host_inbound = str((host.get("inbound") or {}).get("configProfileInboundUuid") or "")
+        try:
+            host_port = int(str(host.get("port")))
+        except (TypeError, ValueError):
+            host_port = 0
+        if (
+            host_inbound == inbound_uuid
+            and str(host.get("address") or "") == str(address)
+            and host_port == port_int
+        ):
+            print(f"!! такая локация уже есть: {host.get('remark')!r} (uuid={host.get('uuid')})")
+            return 1
+
     payload: dict = {
         "inbound": {
             "configProfileUuid": inbound.get("profileUuid") or inbound.get("configProfileUuid"),
@@ -267,10 +316,12 @@ async def cmd_create(remna) -> int:
         payload["sni"] = arg("sni")
     if arg("security"):
         payload["securityLayer"] = arg("security")
-    if arg("server-description"):
+    if direct:
+        payload["serverDescription"] = arg("server-description") or "Обычное подключение"
+    elif arg("server-description"):
         payload["serverDescription"] = arg("server-description")
 
-    print("\nСОЗДАЮ ЛОКАЦИЮ:")
+    print("\nСОЗДАЮ ЛОКАЦИЮ:" + (" (прямое подключение, без CDN)" if direct else ""))
     print(f"  название: {remark}")
     print(f"  нода:     {node.get('name')} ({node.get('uuid')})")
     print(f"  инбаунд:  {inbound.get('tag')} ({inbound.get('uuid')})")
