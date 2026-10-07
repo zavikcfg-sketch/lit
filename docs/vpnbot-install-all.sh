@@ -9,7 +9,7 @@
 
 set -u
 
-VERSION="install-all 2026-10-07.4"
+VERSION="install-all 2026-10-07.5"
 BOT_DIR="${VPNBOT_DIR:-/opt/vpnbot/vpn-bot}"
 CONTAINER="${VPNBOT_CONTAINER:-vpnbot-bot}"
 RAW="https://raw.githubusercontent.com/zavikcfg-sketch/lit/arena/ce75106c-lit/docs"
@@ -49,6 +49,8 @@ fetch avatar-litenergy.png /root/litenergy-avatar.png && say "  ok  аватар
 step "4/8  Красивый экран входа, тексты, кнопка пробника для новых, /apps и /link"
 fetch vpnbot-patch-polish.py /root/vpnbot-patch-polish.py || { say "!! не скачался патч оформления"; exit 1; }
 VPNBOT_BANNER=/root/litenergy-banner.png python3 /root/vpnbot-patch-polish.py || { say "!! патч оформления не применился"; exit 1; }
+say "  проверка: экран входа обновлён ($(grep -c _litenergy_design "$BOT_DIR/app/telegram/handlers_start.py") связок)"
+say "  проверка: врезки в main.py ($(grep -c _litenergy_look.attach "$BOT_DIR/app/main.py"))"
 
 step "5/8  Пересборка бота"
 say "(код в контейнере обновляется только пересборкой)"

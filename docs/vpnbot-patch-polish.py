@@ -22,7 +22,7 @@ import shutil
 import time
 from pathlib import Path
 
-SCRIPT_VERSION = "patch-polish 2026-10-07.2"
+SCRIPT_VERSION = "patch-polish 2026-10-07.3"
 
 ROOT = Path(os.environ.get("VPNBOT_DIR", "/opt/vpnbot/vpn-bot"))
 BACKUP_DIR = Path(os.environ.get("VPNBOT_BACKUP_DIR", "/root"))
@@ -64,33 +64,37 @@ router = Router(name="litenergy-design")
 BANNER_ENV_KEY = "LOOK_BANNER"
 BANNER_DEFAULT = "app/telegram/assets/litenergy-banner.png"
 
+OUTLINE = "━━━━━━━━━━━━━━━"
+
 WELCOME = (
     "⚡ <b>LitEnergy VPN</b>\n"
-    "Быстрый и стабильный доступ — даже там, где обычный VPN не работает.\n"
+    f"{OUTLINE}\n"
+    "Быстрый и стабильный доступ — работает даже там, где обычный VPN молчит.\n"
     "\n"
-    "🟢 Локации: <b>все доступные</b>\n"
-    "🚀 Скорость: <b>без ограничений</b>\n"
-    "🛡 Обход блокировок: <b>белые списки + CDN</b>\n"
+    "🟢 Любые сервисы и сайты\n"
+    "🚀 Скорость без ограничений\n"
+    "🛡 Обход блокировок: белые списки + CDN\n"
+    "📱 Одна подписка — все ваши устройства\n"
     "\n"
-    "🎁 Новым — <b>тест 1 день бесплатно</b>.\n"
-    "\n"
-    "Выберите действие ниже 👇"
+    "🎁 Новым — <b>тест на 1 день бесплатно</b>\n"
+    f"{OUTLINE}\n"
+    "Выберите действие 👇"
 )
 
 HELP = (
     "📖 <b>Как подключиться</b>\n"
-    "\n"
+    f"{OUTLINE}\n"
     "<b>1.</b> Установите приложение:\n"
-    "  • iPhone (App Store): <b>Happ</b>, <b>v2rayTun</b> или <b>Streisand</b>\n"
-    "  • Android (Google Play): <b>v2rayTun</b> или <b>Hiddify</b>\n"
-    "  • Windows / macOS: <b>Hiddify</b> или <b>v2rayTun</b>\n"
+    "  • iPhone — <b>Happ</b>, <b>v2rayTun</b>, <b>Streisand</b>\n"
+    "  • Android — <b>v2rayTun</b>, <b>Hiddify</b>\n"
+    "  • Windows / macOS — <b>Hiddify</b>, <b>v2rayTun</b>\n"
     "\n"
-    "<b>2.</b> Скопируйте ссылку подписки: 📱 Моя подписка → «Ссылка».\n"
+    "<b>2.</b> Возьмите ссылку: /vpn (там же QR-код).\n"
     "<b>3.</b> В приложении: «+» → «Добавить из буфера обмена».\n"
     "<b>4.</b> Включите VPN и проверьте любой сайт.\n"
     "\n"
     "⚠️ <b>Не работает?</b> Обновите подписку в приложении (потяните список вниз), "
-    "затем выключите и включите VPN. Если не помогло — напишите в 🆘 поддержку."
+    "смените локацию и включите VPN заново. Не помогло — 🆘 поддержка."
 )
 
 APPS = (
@@ -181,6 +185,116 @@ def banner_file():
     except Exception as exc:  # noqa: BLE001
         log.warning("design: баннер не подготовлен (%s)", exc)
         return None
+
+
+MENU_FALLBACK = (
+    ("🛒 Тарифы и подписка", "menu:shop"),
+    ("📱 Моя подписка", "menu:mysub"),
+)
+
+
+def _wrap_menu(original):
+    """Обёртка: если своё меню пустое или падает — отдаём гарантированное."""
+
+    def menu_kb():
+        kb = None
+        try:
+            kb = original()
+        except Exception as exc:  # noqa: BLE001
+            log.debug("design: своё меню не собралось (%s)", exc)
+        if kb is not None and getattr(kb, "inline_keyboard", None):
+            return kb
+        try:
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+            return InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=text, callback_data=data)]
+                    for text, data in MENU_FALLBACK
+                ]
+            )
+        except Exception:  # noqa: BLE001
+            return kb
+
+    return menu_kb
+
+
+def _patch_menu_kb() -> None:
+    """Гарантируем, что меню входа есть и не пустое: оборачиваем menu_kb во всех
+    модулях, куда он был импортирован по имени (иначе правки их не видят)."""
+    import importlib
+
+    modules = (
+        "app.services.notifications",
+        "app.telegram.handlers_start",
+        "app.telegram.handlers_subscription",
+        "app.telegram.handlers_shop",
+        "app.telegram.handlers_admin",
+        "app.telegram.referral_extra",
+    )
+    patched: list[str] = []
+    base = None
+    for name in modules:
+        try:
+            module = importlib.import_module(name)
+        except Exception:  # noqa: BLE001
+            continue
+        func = getattr(module, "menu_kb", None)
+        if not callable(func):
+            continue
+        if getattr(module, "_litenergy_menu_patched", False):
+            continue
+        if base is None:
+            base = func
+            wrapped = _wrap_menu(func)
+        else:
+            wrapped = _wrap_menu(func)
+        try:
+            setattr(module, "menu_kb", wrapped)
+            module._litenergy_menu_patched = True
+            patched.append(name.rsplit(".", 1)[-1])
+        except Exception:  # noqa: BLE001
+            continue
+    if patched:
+        log.info("design: меню входа защищено от пустоты (%s)", ", ".join(patched))
+
+
+def _patch_texts() -> None:
+    """Подменяем тексты в модуле, который их отдаёт хендлерам."""
+    try:
+        from app.services import notifications
+    except Exception as exc:  # noqa: BLE001
+        log.debug("design: тексты не переопределены (%s)", exc)
+        return
+    if getattr(notifications, "_litenergy_texts_patched", False):
+        return
+    import importlib
+
+    modules = (
+        "app.services.notifications",
+        "app.telegram.handlers_start",
+        "app.telegram.handlers_subscription",
+        "app.telegram.handlers_shop",
+        "app.telegram.handlers_admin",
+        "app.telegram.referral_extra",
+    )
+    patched: list[str] = []
+    for name in modules:
+        try:
+            module = importlib.import_module(name)
+        except Exception:  # noqa: BLE001
+            continue
+        touched = False
+        if callable(getattr(module, "welcome_text", None)):
+            module.welcome_text = welcome_text
+            touched = True
+        if callable(getattr(module, "help_text", None)):
+            module.help_text = help_text
+            touched = True
+        if touched:
+            patched.append(name.rsplit(".", 1)[-1])
+    notifications._litenergy_texts_patched = True
+    log.info("design: тексты входа и справки обновлены (%s)", ", ".join(patched))
 
 
 def _main_kb():
@@ -332,6 +446,8 @@ async def cmd_link(message) -> None:
 def install(dp) -> None:
     if dp is None:
         return
+    _patch_texts()
+    _patch_menu_kb()
     try:
         dp.include_router(router)
         log.info("LitEnergy design: команды /apps и /link")
@@ -362,7 +478,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 log = logging.getLogger("app.look")
 
-MODULE_VERSION = "2026-10-07.2"
+MODULE_VERSION = "2026-10-07.3"
 
 TRIAL_CALLBACK = "buy:trial"
 HELP_CALLBACK = "lit:help"
@@ -633,18 +749,19 @@ def _add_footer(method) -> None:
 
 
 def _move_caption(method) -> None:
-    """Правка подписи у сообщения с фото: для Telegram это caption, не text."""
-    if getattr(method, "caption", None):
+    """У сообщения с фото текст живёт в подписи: переносим, иначе Telegram поругается."""
+    if not hasattr(method, "caption") or not isinstance(getattr(method, "caption", None), str):
+        return
+    if str(getattr(method, "caption", "") or "").strip():
         return
     text = getattr(method, "text", None)
     if not isinstance(text, str) or not text.strip():
         return
-    if not hasattr(method, "caption"):
+    if not hasattr(method, "photo"):
         return
     try:
         method.caption = text
-        if hasattr(method, "text"):
-            method.text = None
+        method.text = None
     except Exception:  # noqa: BLE001
         pass
 
@@ -709,14 +826,16 @@ async def polish(method) -> None:
             if url and not _has_supportish(cleaned):
                 rows.append([_mk_url(SUPPORT_BUTTON, url)])
                 changed = True
-            _add_footer(method)
 
         if changed and rows:
             try:
                 method.reply_markup = InlineKeyboardMarkup(inline_keyboard=rows)
             except Exception as exc:  # noqa: BLE001
                 log.warning("look: не удалось поправить меню (%s)", exc)
-        if activated:
+
+    if isinstance(markup, InlineKeyboardMarkup):
+        _add_footer(method)
+        if "activated" in dir() and locals().get("activated"):
             forget(chat_id)
 
 
@@ -1391,7 +1510,11 @@ def patch_handlers_start(path: Path) -> tuple[str, list[str]]:
         ("cmd_start", CMD_START_FUNC),
         ("cb_back", CB_BACK_FUNC),
     ):
-        text, note = replace_def(text, name, block)
+        updated, note = replace_def(text, name, block)
+        if updated is None:
+            notes.append(f"{name}: нет в файле (импортируется — обновим в модуле)")
+            continue
+        text = updated
         notes.append(note)
     if text == original:
         return None, notes
