@@ -22,7 +22,7 @@ import shutil
 import time
 from pathlib import Path
 
-SCRIPT_VERSION = "patch-polish 2026-10-07.1"
+SCRIPT_VERSION = "patch-polish 2026-10-07.2"
 
 ROOT = Path(os.environ.get("VPNBOT_DIR", "/opt/vpnbot/vpn-bot"))
 BACKUP_DIR = Path(os.environ.get("VPNBOT_BACKUP_DIR", "/root"))
@@ -1286,6 +1286,81 @@ def install_lines(indent: str, name: str) -> list[str]:
     ]
 
 
+REFERRAL_MARK = "_litenergy_extras.install("
+
+
+def _drop_block(text: str, marker: str) -> tuple[str, bool]:
+    """Убирает try/except-блок, начинающийся строкой с marker."""
+    lines = text.splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    dropped = False
+    while i < len(lines):
+        line = lines[i]
+        if marker in line and i + 1 < len(lines) and lines[i + 1].strip() == "try:":
+            indent = len(line) - len(line.lstrip())
+            end = None
+            j = i + 1
+            while j < len(lines):
+                stripped = lines[j].strip()
+                if stripped.startswith(")") and (len(lines[j]) - len(lines[j].lstrip())) >= indent:
+                    end = j
+                    break
+                j += 1
+            if end is not None:
+                dropped = True
+                i = end + 1
+                if i < len(lines) and lines[i].strip() == "":
+                    i += 1
+                continue
+        out.append(line)
+        i += 1
+    return ("".join(out) if dropped else text), dropped
+
+
+def cleanup_stale_installs(target: Path | None, folder: Path) -> tuple[list[str], list[Path]]:
+    """Ищем врезку рефералки там, где нет start_polling (обычно __init__.py),
+    и убираем её — иначе бот пишет предупреждение и /vpn не работает."""
+    cleaned: list[str] = []
+    touched: list[Path] = []
+    for path in python_files():
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if REFERRAL_MARK not in text:
+            continue
+        if target is not None and path == target:
+            continue
+        if "start_polling" in text:
+            continue
+        fixed, dropped = _drop_block(text, "# --- LitEnergy extras")
+        if not dropped:
+            continue
+        backups = backup(path, folder)
+        if backups is None:
+            continue
+        path.write_text(fixed, encoding="utf-8")
+        cleaned.append(str(path.relative_to(ROOT)))
+        touched.append(path)
+    return cleaned, touched
+
+
+def referral_lines(indent: str, name: str) -> list[str]:
+    return [
+        "",
+        "# --- LitEnergy: рефералка, «Моя подписка», справка ---",
+        "try:",
+        "    from app.telegram import referral_extra as _litenergy_extras",
+        f"    _litenergy_extras.install({name})",
+        "except Exception as _extras_exc:  # noqa: BLE001",
+        "    import logging as _extras_logging",
+        '    _extras_logging.getLogger("app").warning(',
+        '        "LitEnergy extras не подключены: %s", _extras_exc',
+        "    )",
+    ]
+
+
 DEF_RX = re.compile(r"^(?:async\s+)?def\s+(\w+)\s*\(", re.M)
 NEXT_TOP_RX = re.compile(r"^(?:async\s+)?def\s+\w+\s*\(|^@|^class\s+\w+", re.M)
 
@@ -1410,12 +1485,40 @@ def main() -> int:
     else:
         notes.append("handlers_start.py не найден — тексты не заменены")
 
-    # 4) врезки в главный файл
+    # 4) врезки в главный файл (тот же файл, где создаётся Bot)
     bot_file, _ = find_file_with(r"^(\s*)(\w+)\s*=\s*Bot\(")
     dp_file, _ = find_file_with(r"^(\s*)(\w+)\s*=\s*Dispatcher\(")
+    if bot_file is not None:
+        try:
+            bot_text = bot_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            bot_text = ""
+        if re.search(r"^(\s*)(\w+)\s*=\s*Dispatcher\(", bot_text, re.M):
+            dp_file = bot_file
+
+    cleaned, cleaned_paths = cleanup_stale_installs(dp_file, folder)
+    for path in cleaned_paths:
+        touched.append(path)
+    if cleaned:
+        notes.append("убрана лишняя врезка из " + ", ".join(cleaned))
+
+    need_referral = False
+    if dp_file is not None and (APP / "telegram" / "referral_extra.py").is_file():
+        try:
+            dp_text = dp_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            dp_text = ""
+        need_referral = "_litenergy_extras.install(" not in dp_text
+
+    def install_builder(indent: str, name: str) -> list[str]:
+        lines: list[str] = []
+        if need_referral:
+            lines.extend(referral_lines(indent, name))
+        lines.extend(install_lines(indent, name))
+        return lines
     for path, pattern, marker, builder, label in (
         (bot_file, r"^(\s*)(\w+)\s*=\s*Bot\(", ATTACH_MARKER, attach_lines, "attach"),
-        (dp_file, r"^(\s*)(\w+)\s*=\s*Dispatcher\(", INSTALL_MARKER, install_lines, "install"),
+        (dp_file, r"^(\s*)(\w+)\s*=\s*Dispatcher\(", INSTALL_MARKER, install_builder, "install"),
     ):
         if path is None:
             notes.append(f"{label}: не нашёл создание Bot/Dispatcher")
