@@ -60,7 +60,7 @@ def fetch(url: str) -> str | None:
         print(f"  ! не скачалось ({url}): {exc}")
         return None
     text = data.decode("utf-8", errors="replace")
-    if "async def install(dp)" not in text or "MODULE_VERSION" not in text:
+    if "def install(dp)" not in text or "MODULE_VERSION" not in text:
         print("  ! в скачанном файле нет модуля — пропускаю этот источник")
         return None
     return text
